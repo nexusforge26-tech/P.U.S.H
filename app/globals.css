@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: light; }
+html { scroll-behavior: smooth; }
+body { background:#f7f5ef; color:#142018; }
+::selection { background:#d7a83d; color:#172019; }
+a,button,input,select,textarea { -webkit-tap-highlight-color: transparent; }
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible { outline:3px solid rgba(199,143,45,.35); outline-offset:3px; border-radius:12px; }
+@media (prefers-reduced-motion: reduce) { * { animation-duration:.001ms!important; animation-iteration-count:1!important; transition-duration:.001ms!important; scroll-behavior:auto!important; } }
+.scrollbar-thin::-webkit-scrollbar{height:7px}.scrollbar-thin::-webkit-scrollbar-thumb{background:rgba(35,65,47,.25);border-radius:999px}.scrollbar-thin::-webkit-scrollbar-track{background:transparent}
+.snap-row{scroll-snap-type:x mandatory}.snap-row>*{scroll-snap-align:start}
+.aspect-video-box{position:relative;width:100%;padding-top:56.25%}.aspect-video-box>iframe,.aspect-video-box>img{position:absolute;inset:0;width:100%;height:100%}
+@keyframes float-soft { 0%,100%{transform:translate3d(0,0,0)}50%{transform:translate3d(0,-8px,0)} }
+.animate-float-soft{animation:float-soft 7s ease-in-out infinite}
+
+
+.admin-shell {
+  background:
+    radial-gradient(circle at 12% 8%, rgba(190,138,46,.08), transparent 28rem),
+    radial-gradient(circle at 88% 18%, rgba(156,59,46,.06), transparent 30rem),
+    #f7f5ef;
+}
