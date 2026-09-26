@@ -51,9 +51,13 @@ export async function PATCH(req: NextRequest) {
       drive_link: submission.drive_link,
       youtube_id: submission.youtube_id,
       is_featured: false,
+      created_by: submission.user_id,
+      source_submission_id: submission.id,
     };
     const { error: insertError } = await supabaseAdmin.from("materials").insert(payload);
     if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 });
+    const { data: created } = await supabaseAdmin.from("materials").select("id").eq("source_submission_id", submission.id).maybeSingle();
+    if (created) await supabaseAdmin.from("publication_logs").insert({actor_id: actor.user.id, action:"material_published", material_id:created.id, course_id:submission.course_id, submission_id:submission.id, details:{title_ar:submission.title_ar, contributor_id:submission.user_id}});
   }
 
   const { data, error } = await supabaseAdmin.from("submissions").update({

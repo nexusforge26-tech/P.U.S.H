@@ -32,12 +32,14 @@ export async function POST(req: NextRequest) {
     }
 
     if (kind === "course") {
+      if (!body.code?.trim()) return NextResponse.json({ error: "رقم/رمز المساق إجباري." }, { status: 400 });
       const { data, error } = await supabaseAdmin
         .from("courses")
-        .insert({ name_ar: body.name_ar, code: body.code || null, faculty_id: body.faculty_id })
+        .insert({ name_ar: body.name_ar, code: body.code.trim(), faculty_id: body.faculty_id })
         .select()
         .single();
       if (error) throw error;
+      await supabaseAdmin.from("publication_logs").insert({ actor_id: (await requireRole(req, ["admin","owner"]))!.user.id, action:"course_created", course_id:data.id, details:{source:"admin"} });
       return NextResponse.json({ data });
     }
 
@@ -67,7 +69,7 @@ export async function PATCH(req: NextRequest) {
   if (!kind || !id || !name_ar) return NextResponse.json({ error: "بيانات التعديل ناقصة" }, { status: 400 });
   const table = kind === "university" ? "universities" : kind === "faculty" ? "faculties" : kind === "course" ? "courses" : null;
   if (!table) return NextResponse.json({ error: "kind غير معروف" }, { status: 400 });
-  const payload:any = { name_ar }; if (kind === "course") payload.code = code || null;
+  const payload:any = { name_ar }; if (kind === "course") { if (!String(code||"").trim()) return NextResponse.json({error:"رقم/رمز المساق إجباري."},{status:400}); payload.code = String(code).trim(); }
   const { data, error } = await supabaseAdmin.from(table).update(payload).eq("id", id).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ data });

@@ -130,7 +130,16 @@ export async function searchMaterials(
     .order("created_at", { ascending: false })
     .range(from, to);
 
-  if (filters.q) query = query.ilike("title_ar", `%${filters.q}%`);
+  if (filters.q) {
+    const term = filters.q.trim();
+    const [{ data: titleMatches }, { data: courseMatches }] = await Promise.all([
+      supabase.from("materials").select("id").ilike("title_ar", `%${term}%`),
+      supabase.from("courses").select("id").or(`name_ar.ilike.%${term}%,code.ilike.%${term}%`),
+    ]);
+    const ids = [...new Set([...(titleMatches ?? []).map((x:any)=>x.id), ...((courseMatches ?? []).map((x:any)=>x.id))])];
+    if (!ids.length) return { items: [], count: 0 };
+    query = query.in("id", ids);
+  }
   if (filters.courseId) query = query.eq("course_id", filters.courseId);
   else if (scopedCourseIds) query = query.in("course_id", scopedCourseIds);
   if (filters.type) query = query.eq("type", filters.type);

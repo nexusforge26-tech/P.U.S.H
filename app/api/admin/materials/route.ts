@@ -45,6 +45,7 @@ export async function GET(req: NextRequest) {
   const featured = searchParams.get("featured") ?? "";
   // Accept both "university" and "university_id" for backwards compatibility.
   const universityId = searchParams.get("university_id") ?? searchParams.get("university") ?? "";
+  const courseId = searchParams.get("course_id") ?? "";
   const page = Math.max(1, Number(searchParams.get("page") ?? 1));
   const pageSize = Math.min(50, Math.max(5, Number(searchParams.get("pageSize") ?? 12)));
   const from = (page - 1) * pageSize;
@@ -64,7 +65,8 @@ export async function GET(req: NextRequest) {
   }
 
   let query = supabaseAdmin.from("materials").select(select, { count: "exact" }).order("created_at", { ascending: false }).range(from, from + pageSize - 1);
-  if (courseIds) {
+  if (courseId) query = query.eq("course_id", courseId);
+  else if (courseIds) {
     query = courseIds.length ? query.in("course_id", courseIds) : query.eq("course_id", "00000000-0000-0000-0000-000000000000");
   }
   if (q) query = query.ilike("title_ar", `%${q}%`);
@@ -109,7 +111,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!(await requireRole(req, ["admin","owner"]))) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
+  const actor = await requireRole(req, ["admin","owner"]);
+  if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
   const body = await req.json();
   const { course_id, title_ar, description_ar, type, academic_year, semester, drive_link, youtube_input, is_featured } = body;
   if (!course_id || !title_ar || !type) return NextResponse.json({ error: "الحقول الأساسية ناقصة" }, { status: 400 });
@@ -131,11 +134,13 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await supabaseAdmin.from("materials").insert(payload).select(select).single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  await supabaseAdmin.from("publication_logs").insert({actor_id: actor.user.id, action:"material_published", material_id:data.id, course_id, details:{title_ar}});
   return NextResponse.json({ data: flatten(data) });
 }
 
 export async function PATCH(req: NextRequest) {
-  if (!(await requireRole(req, ["admin","owner"]))) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
+  const actor = await requireRole(req, ["admin","owner"]);
+  if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
   const body = await req.json();
   const { id, course_id, title_ar, description_ar, type, academic_year, semester, drive_link, youtube_input, is_featured } = body;
   if (!id || !course_id || !title_ar || !type) return NextResponse.json({ error: "الحقول الأساسية ناقصة" }, { status: 400 });
@@ -156,14 +161,18 @@ export async function PATCH(req: NextRequest) {
 
   const { data, error } = await supabaseAdmin.from("materials").update(payload).eq("id", id).select(select).single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  await supabaseAdmin.from("publication_logs").insert({actor_id: actor.user.id, action:"material_updated", material_id:id, course_id, details:{title_ar}});
   return NextResponse.json({ data: flatten(data) });
 }
 
 export async function DELETE(req: NextRequest) {
-  if (!(await requireRole(req, ["admin","owner"]))) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
+  const actor = await requireRole(req, ["admin","owner"]);
+  if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
   const id = new URL(req.url).searchParams.get("id");
   if (!id) return NextResponse.json({ error: "معرّف المادة مطلوب" }, { status: 400 });
+  const { data: existing } = await supabaseAdmin.from("materials").select("course_id,title_ar").eq("id", id).maybeSingle();
   const { error } = await supabaseAdmin.from("materials").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  await supabaseAdmin.from("publication_logs").insert({actor_id: actor.user.id, action:"material_deleted", course_id:existing?.course_id||null, details:{title_ar:existing?.title_ar||null}});
   return NextResponse.json({ ok: true });
 }
