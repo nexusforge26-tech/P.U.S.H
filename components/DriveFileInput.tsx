@@ -2,6 +2,8 @@
 import { useState } from "react";
 
 const input = "w-full rounded-2xl border border-olive/10 bg-[#fbfaf7] px-4 py-3 text-sm text-ink outline-none file:ml-3 file:rounded-xl file:border-0 file:bg-olive file:px-4 file:py-2 file:font-black file:text-parchment focus:border-gold focus:bg-white focus:ring-4 focus:ring-gold/10";
+const MAX_FILE_SIZE = 25 * 1024 * 1024;
+const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB; Google requires resumable chunks to be multiples of 256KB.
 
 interface Props {
   token: string;
@@ -10,28 +12,111 @@ interface Props {
   onUploaded: (link: string, fileName: string) => void;
 }
 
-// يرفع الملف مباشرة من جهاز المستخدم إلى Google Drive الخاص بالموقع (عبر
-// /api/upload/drive)، ثم يعيد رابط Drive الناتج ليُخزَّن كـ drive_link.
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function uploadToGoogle(sessionUrl: string, file: File, onProgress: (value: number) => void) {
+  let start = 0;
+
+  while (start < file.size) {
+    const end = Math.min(start + CHUNK_SIZE, file.size);
+    const chunk = file.slice(start, end);
+    let completed = false;
+
+    for (let attempt = 0; attempt < 3 && !completed; attempt++) {
+      try {
+        const response = await fetch(sessionUrl, {
+          method: "PUT",
+          headers: {
+            "Content-Range": `bytes ${start}-${end - 1}/${file.size}`,
+          },
+          body: chunk,
+        });
+
+        if (response.status === 308) {
+          const range = response.headers.get("Range");
+          const match = range?.match(/bytes=0-(\d+)/);
+          start = match ? Number(match[1]) + 1 : end;
+          onProgress(Math.min(100, Math.round((start / file.size) * 100)));
+          completed = true;
+          continue;
+        }
+
+        if (response.ok) {
+          const data = await response.json();
+          onProgress(100);
+          return data as { id?: string; name?: string; webViewLink?: string };
+        }
+
+        const text = await response.text().catch(() => "");
+        throw new Error(`Google Drive رفض جزء الرفع (${response.status})${text ? `: ${text}` : ""}`);
+      } catch (error) {
+        if (attempt === 2) throw error;
+        await sleep(800 * (attempt + 1));
+      }
+    }
+  }
+
+  throw new Error("لم يُرجع Google Drive نتيجة نهائية للرفع");
+}
+
 export default function DriveFileInput({ token, currentLink, currentName, onUploaded }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [progress, setProgress] = useState(0);
   const [uploadedName, setUploadedName] = useState(currentName || "");
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+
     setBusy(true);
     setError("");
-    const fd = new FormData();
-    fd.append("file", file);
+    setProgress(0);
+
     try {
-      const r = await fetch("/api/upload/drive", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd });
-      const d = await r.json();
-      if (!r.ok) { setError(d.error || "تعذر رفع الملف"); return; }
-      setUploadedName(d.file_name || file.name);
-      onUploaded(d.drive_link, d.file_name || file.name);
-    } catch {
-      setError("تعذر الاتصال بالخادم أثناء الرفع");
+      if (file.size === 0) throw new Error("الملف فارغ");
+      if (file.size > MAX_FILE_SIZE) throw new Error("حجم الملف أكبر من الحد المسموح به (25 ميجابايت)");
+      if (!token) throw new Error("انتهت جلسة تسجيل الدخول، يرجى تسجيل الدخول مرة أخرى");
+
+      // الطلب الوحيد الذي يمر عبر Vercel صغير جدًا: إنشاء جلسة Google Drive.
+      const init = await fetch("/api/upload/drive/initiate", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ fileName: file.name, mimeType: file.type, fileSize: file.size }),
+      });
+
+      const initData = await init.json().catch(() => ({}));
+      if (!init.ok || !initData.sessionUrl) {
+        throw new Error(initData.error || "تعذر بدء الرفع إلى Google Drive");
+      }
+
+      // البايتات تنتقل من المتصفح مباشرة إلى Google، فلا تمر عبر حد Vercel البالغ 4.5MB.
+      const uploaded = await uploadToGoogle(initData.sessionUrl, file, setProgress);
+      if (!uploaded?.id) throw new Error("اكتمل الرفع دون الحصول على معرّف الملف");
+
+      // نستخدم السيرفر فقط لمنح صلاحية العرض وإنشاء الرابط النهائي.
+      const finalize = await fetch("/api/upload/drive/finalize", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ fileId: uploaded.id, fileName: uploaded.name || file.name }),
+      });
+
+      const finalData = await finalize.json().catch(() => ({}));
+      if (!finalize.ok) throw new Error(finalData.error || "تم رفع الملف لكن تعذر تجهيز رابط العرض");
+
+      setUploadedName(finalData.file_name || file.name);
+      onUploaded(finalData.drive_link, finalData.file_name || file.name);
+      setProgress(100);
+    } catch (err: any) {
+      setError(err?.message || "تعذر الاتصال بالخادم أثناء الرفع");
     } finally {
       setBusy(false);
       e.target.value = "";
@@ -41,7 +126,14 @@ export default function DriveFileInput({ token, currentLink, currentName, onUplo
   return (
     <div className="space-y-2">
       <input type="file" onChange={handleFile} disabled={busy} className={input} />
-      {busy && <p className="text-xs font-bold text-olive-dark">جارٍ رفع الملف إلى Google Drive...</p>}
+      {busy && (
+        <div className="space-y-1">
+          <p className="text-xs font-bold text-olive-dark">جارٍ رفع الملف إلى Google Drive... {progress}%</p>
+          <div className="h-2 overflow-hidden rounded-full bg-olive/10">
+            <div className="h-full rounded-full bg-clay transition-all" style={{ width: `${progress}%` }} />
+          </div>
+        </div>
+      )}
       {error && <p className="text-xs font-bold text-clay-dark">{error}</p>}
       {!busy && !error && (currentLink || uploadedName) && (
         <p className="rounded-xl bg-olive/5 px-3 py-2 text-xs font-bold text-olive-dark">
