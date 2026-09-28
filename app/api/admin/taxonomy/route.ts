@@ -69,7 +69,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  if (!(await requireRole(req, ["admin","owner"]))) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
+  const actor = await requireRole(req, ["admin","owner"]);
+  if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
   const body = await req.json(); const { kind, id, name_ar, code } = body;
   if (!kind || !id || !name_ar) return NextResponse.json({ error: "بيانات التعديل ناقصة" }, { status: 400 });
   const table = kind === "university" ? "universities" : kind === "faculty" ? "faculties" : kind === "course" ? "courses" : null;
@@ -83,7 +84,8 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  if (!(await requireRole(req, ["admin","owner"]))) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
+  const actor = await requireRole(req, ["admin","owner"]);
+  if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
   const { searchParams } = new URL(req.url); const id = searchParams.get("id"); const kind = searchParams.get("kind");
   const table = kind === "university" ? "universities" : kind === "faculty" ? "faculties" : kind === "course" ? "courses" : null;
   if (!id || !table) return NextResponse.json({ error: "بيانات الحذف ناقصة" }, { status: 400 });
