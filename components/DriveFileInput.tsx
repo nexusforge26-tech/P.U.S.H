@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { supabase } from "@/lib/supabase/client";
 
 const input = "w-full rounded-2xl border border-olive/10 bg-[#fbfaf7] px-4 py-3 text-sm text-ink outline-none file:ml-3 file:rounded-xl file:border-0 file:bg-olive file:px-4 file:py-2 file:font-black file:text-parchment focus:border-gold focus:bg-white focus:ring-4 focus:ring-gold/10";
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
@@ -66,6 +67,7 @@ export default function DriveFileInput({ token, currentLink, currentName, onUplo
   const [error, setError] = useState("");
   const [progress, setProgress] = useState(0);
   const [uploadedName, setUploadedName] = useState(currentName || "");
+  const [pasted, setPasted] = useState("");
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -80,38 +82,27 @@ export default function DriveFileInput({ token, currentLink, currentName, onUplo
       if (file.size > MAX_FILE_SIZE) throw new Error("حجم الملف أكبر من الحد المسموح به (25 ميجابايت)");
       if (!token) throw new Error("انتهت جلسة تسجيل الدخول، يرجى تسجيل الدخول مرة أخرى");
 
-      // الطلب الوحيد الذي يمر عبر Vercel صغير جدًا: إنشاء جلسة Google Drive.
-      const init = await fetch("/api/upload/drive/initiate", {
+      // الرفع إلى Supabase Storage: طلب صغير للسيرفر ثم رفع مباشر من المتصفح.
+      const init = await fetch("/api/upload/storage", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ fileName: file.name, mimeType: file.type, fileSize: file.size }),
+        body: JSON.stringify({ fileName: file.name, fileSize: file.size }),
       });
-
       const initData = await init.json().catch(() => ({}));
-      if (!init.ok || !initData.sessionUrl) {
-        throw new Error(initData.error || "تعذر بدء الرفع إلى Google Drive");
-      }
+      if (!init.ok || !initData.token) throw new Error(initData.error || "تعذر بدء الرفع");
 
-      // البايتات تنتقل من المتصفح مباشرة إلى Google، فلا تمر عبر حد Vercel البالغ 4.5MB.
-      const uploaded = await uploadToGoogle(initData.sessionUrl, file, setProgress);
-      if (!uploaded?.id) throw new Error("اكتمل الرفع دون الحصول على معرّف الملف");
+      setProgress(30);
+      const { error: upErr } = await supabase.storage
+        .from(initData.bucket)
+        .uploadToSignedUrl(initData.path, initData.token, file, { contentType: file.type || "application/octet-stream" });
+      if (upErr) throw new Error(upErr.message || "فشل رفع الملف");
 
-      // نستخدم السيرفر فقط لمنح صلاحية العرض وإنشاء الرابط النهائي.
-      const finalize = await fetch("/api/upload/drive/finalize", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ fileId: uploaded.id, fileName: uploaded.name || file.name }),
-      });
+      const finalData = { file_name: file.name, drive_link: initData.publicUrl as string };
 
-      const finalData = await finalize.json().catch(() => ({}));
-      if (!finalize.ok) throw new Error(finalData.error || "تم رفع الملف لكن تعذر تجهيز رابط العرض");
-
+      setPasted("");
       setUploadedName(finalData.file_name || file.name);
       onUploaded(finalData.drive_link, finalData.file_name || file.name);
       setProgress(100);
@@ -126,19 +117,32 @@ export default function DriveFileInput({ token, currentLink, currentName, onUplo
   return (
     <div className="space-y-2">
       <input type="file" onChange={handleFile} disabled={busy} className={input} />
+      <input
+        type="url"
+        dir="ltr"
+        value={pasted}
+        onChange={(e) => {
+          setPasted(e.target.value);
+          setError("");
+          onUploaded(e.target.value.trim(), "");
+        }}
+        disabled={busy}
+        placeholder="أو الصق رابط الملف (Google Drive / أي رابط عام)"
+        className={input}
+      />
       {busy && (
         <div className="space-y-1">
-          <p className="text-xs font-bold text-olive-dark">جارٍ رفع الملف إلى Google Drive... {progress}%</p>
+          <p className="text-xs font-bold text-olive-dark">جارٍ رفع الملف... {progress}%</p>
           <div className="h-2 overflow-hidden rounded-full bg-olive/10">
             <div className="h-full rounded-full bg-clay transition-all" style={{ width: `${progress}%` }} />
           </div>
         </div>
       )}
       {error && <p className="text-xs font-bold text-clay-dark">{error}</p>}
-      {!busy && !error && (currentLink || uploadedName) && (
+      {!busy && !error && !pasted && (currentLink || uploadedName) && (
         <p className="rounded-xl bg-olive/5 px-3 py-2 text-xs font-bold text-olive-dark">
           تم رفع الملف{uploadedName ? `: ${uploadedName}` : ""} ✓
-          {currentLink && <a href={currentLink} target="_blank" rel="noreferrer" className="mr-2 text-clay hover:underline">عرض في Drive ←</a>}
+          {currentLink && <a href={currentLink} target="_blank" rel="noreferrer" className="mr-2 text-clay hover:underline">عرض الملف ←</a>}
         </p>
       )}
     </div>

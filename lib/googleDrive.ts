@@ -1,12 +1,26 @@
 import "server-only";
 import { google } from "googleapis";
 
-// Google Drive الخاص بالموقع عبر Service Account.
-function getAuth() {
+// Google Drive الخاص بالموقع.
+// الأولوية: OAuth عبر Refresh Token لحساب Google شخصي (يستخدم مساحة ذلك الحساب).
+// البديل: Service Account، ويعمل فقط مع Shared Drive (لأنه لا يملك مساحة تخزين).
+type DriveAuth = InstanceType<typeof google.auth.OAuth2>;
+
+function getAuth(): DriveAuth {
+  const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+  const refreshToken = process.env.GOOGLE_OAUTH_REFRESH_TOKEN;
+
+  if (clientId && clientSecret && refreshToken) {
+    const oauth = new google.auth.OAuth2(clientId, clientSecret);
+    oauth.setCredentials({ refresh_token: refreshToken });
+    return oauth;
+  }
+
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const rawKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
   if (!email || !rawKey) {
-    throw new Error("لم يتم ضبط حساب خدمة Google Drive في متغيرات البيئة");
+    throw new Error("لم يتم ضبط حساب Google Drive في متغيرات البيئة");
   }
   const key = rawKey.includes("\\n") ? rawKey.replace(/\\n/g, "\n") : rawKey;
   return new google.auth.JWT({
@@ -47,7 +61,7 @@ export async function initiateDriveResumableUpload(
   if (!folderId) throw new Error("GOOGLE_DRIVE_FOLDER_ID غير مضبوط في متغيرات البيئة");
 
   const response = await fetch(
-    "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,webViewLink",
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,webViewLink",
     {
       method: "POST",
       headers: {
@@ -88,18 +102,20 @@ export async function finalizeDriveUpload(fileId: string, fallbackName = "الم
   if (!folderId) throw new Error("GOOGLE_DRIVE_FOLDER_ID غير مضبوط في متغيرات البيئة");
 
   // لا نمنح صلاحية عامة إلا لملف موجود داخل مجلد الموقع.
-  const existing = await drive.files.get({ fileId, fields: "id,name,parents,webViewLink" });
+  const existing = await drive.files.get({ fileId, supportsAllDrives: true, fields: "id,name,parents,webViewLink" });
   if (!existing.data.parents?.includes(folderId)) {
     throw new Error("الملف لا ينتمي إلى مجلد ملفات الموقع");
   }
 
   await drive.permissions.create({
     fileId,
+    supportsAllDrives: true,
     requestBody: { role: "reader", type: "anyone" },
   });
 
   const info = await drive.files.get({
     fileId,
+    supportsAllDrives: true,
     fields: "id,name,webViewLink",
   });
 
@@ -123,6 +139,7 @@ export async function uploadFileToDrive(buffer: Buffer, fileName: string, mimeTy
   const { Readable } = await import("stream");
 
   const created = await drive.files.create({
+    supportsAllDrives: true,
     requestBody: { name: fileName, parents: [folderId] },
     media: { mimeType: mimeType || "application/octet-stream", body: Readable.from(buffer) },
     fields: "id,name,webViewLink",
