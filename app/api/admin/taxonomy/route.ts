@@ -92,6 +92,6 @@ export async function DELETE(req: NextRequest) {
   const { data: existing } = await supabaseAdmin.from(table).select("id,name_ar").eq("id", id).maybeSingle();
   const { error } = await supabaseAdmin.from(table).delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  await logActivity({ actor, action: kind === "university" ? "university_deleted" : kind === "faculty" ? "faculty_deleted" : "course_deleted", target_type: kind as string, target_id: id, title_ar: existing?.name_ar ?? null, course_id: kind === "course" ? id : null });
+  await logActivity({ actor, action: kind === "university" ? "university_deleted" : kind === "faculty" ? "faculty_deleted" : "course_deleted", target_type: kind, target_id: id, title_ar: existing?.name_ar ?? null, course_id: kind === "course" ? id : null });
   return NextResponse.json({ ok: true });
 }
