@@ -78,6 +78,7 @@ export async function PATCH(req: NextRequest) {
   const payload:any = { name_ar }; if (kind === "course") payload.code = String(code).trim();
   const { data, error } = await supabaseAdmin.from(table).update(payload).eq("id", id).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  await logActivity({ actor, action: kind === "university" ? "university_updated" : kind === "faculty" ? "faculty_updated" : "course_updated", target_type: kind, target_id: id, title_ar: data.name_ar, course_id: kind === "course" ? id : null });
   return NextResponse.json({ data });
 }
 
@@ -86,7 +87,9 @@ export async function DELETE(req: NextRequest) {
   const { searchParams } = new URL(req.url); const id = searchParams.get("id"); const kind = searchParams.get("kind");
   const table = kind === "university" ? "universities" : kind === "faculty" ? "faculties" : kind === "course" ? "courses" : null;
   if (!id || !table) return NextResponse.json({ error: "بيانات الحذف ناقصة" }, { status: 400 });
+  const { data: existing } = await supabaseAdmin.from(table).select("id,name_ar").eq("id", id).maybeSingle();
   const { error } = await supabaseAdmin.from(table).delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  await logActivity({ actor, action: kind === "university" ? "university_deleted" : kind === "faculty" ? "faculty_deleted" : "course_deleted", target_type: kind, target_id: id, title_ar: existing?.name_ar ?? null, course_id: kind === "course" ? id : null });
   return NextResponse.json({ ok: true });
 }

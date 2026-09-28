@@ -39,3 +39,29 @@ export async function PATCH(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ user: data });
 }
+
+
+export async function DELETE(req: NextRequest) {
+  const actor = await requireRole(req, ["admin", "owner"]);
+  if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
+  const id = new URL(req.url).searchParams.get("id");
+  if (!id) return NextResponse.json({ error: "معرّف المستخدم مطلوب" }, { status: 400 });
+
+  const { data: target } = await supabaseAdmin.from("profiles").select("id,email,role").eq("id", id).maybeSingle();
+  if (!target) return NextResponse.json({ error: "المستخدم غير موجود" }, { status: 404 });
+
+  const ownerEmail = "ydha957@gmail.com";
+  if (target.role === "owner" || String(target.email).toLowerCase() === ownerEmail) {
+    return NextResponse.json({ error: "لا يمكن حذف مالك الموقع." }, { status: 403 });
+  }
+  if (target.id === actor.user.id) {
+    return NextResponse.json({ error: "لا يمكنك حذف حسابك بنفسك." }, { status: 403 });
+  }
+  if (target.role === "admin" && actor.profile.role !== "owner") {
+    return NextResponse.json({ error: "حذف مسؤول متاح للمالك فقط." }, { status: 403 });
+  }
+
+  const { error } = await supabaseAdmin.auth.admin.deleteUser(id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}
