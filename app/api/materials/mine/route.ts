@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getRequestUser } from "@/lib/auth";
+import { getRequestUser, suspendedResponse } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
+import { isSiteDriveLink, trashDriveLink } from "@/lib/googleDrive";
 import { SELF_EDIT_WINDOW_HOURS } from "@/lib/types";
 
 const WINDOW_MS = SELF_EDIT_WINDOW_HOURS * 60 * 60 * 1000;
@@ -54,6 +55,7 @@ async function loadOwned(id: string, userId: string) {
 export async function PATCH(req: NextRequest) {
   const account = await getRequestUser(req);
   if (!account) return NextResponse.json({ error: "يجب تسجيل الدخول أولًا" }, { status: 401 });
+  const blocked = suspendedResponse(account); if (blocked) return blocked;
   const body = await req.json();
   const { id, title_ar, description_ar, academic_year, semester, drive_link, youtube_input } = body;
   if (!id || !title_ar) return NextResponse.json({ error: "الحقول الأساسية ناقصة" }, { status: 400 });
@@ -61,7 +63,7 @@ export async function PATCH(req: NextRequest) {
   const owned = await loadOwned(id, account.user.id);
   if (owned.error) return owned.error;
 
-  const { data: existing } = await supabaseAdmin.from("materials").select("type").eq("id", id).single();
+  const { data: existing } = await supabaseAdmin.from("materials").select("type,drive_link").eq("id", id).single();
   const payload: Record<string, unknown> = {
     title_ar, description_ar: description_ar || null,
     academic_year: academic_year || null, semester: semester || null,
@@ -72,11 +74,16 @@ export async function PATCH(req: NextRequest) {
     payload.youtube_id = youtubeId;
   } else if (drive_link !== undefined) {
     if (!String(drive_link).trim()) return NextResponse.json({ error: "رابط Google Drive مطلوب" }, { status: 400 });
-    payload.drive_link = String(drive_link).trim();
+    const newLink = String(drive_link).trim();
+    if (newLink !== existing?.drive_link && !(await isSiteDriveLink(newLink))) {
+      return NextResponse.json({ error: "يجب رفع الملف من جهازك ليُخزَّن في Google Drive الخاص بالموقع" }, { status: 400 });
+    }
+    payload.drive_link = newLink;
   }
 
   const { data, error } = await supabaseAdmin.from("materials").update(payload).eq("id", id).select(select).single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (existing?.drive_link && payload.drive_link && existing.drive_link !== payload.drive_link) await trashDriveLink(existing.drive_link);
   await logActivity({ actor: account, action: "material_edited_by_owner", target_type: "material", target_id: id, title_ar: data.title_ar, course_id: data.course_id });
   return NextResponse.json({ data: flatten(data) });
 }
@@ -84,14 +91,17 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const account = await getRequestUser(req);
   if (!account) return NextResponse.json({ error: "يجب تسجيل الدخول أولًا" }, { status: 401 });
+  const blocked = suspendedResponse(account); if (blocked) return blocked;
   const id = new URL(req.url).searchParams.get("id");
   if (!id) return NextResponse.json({ error: "معرّف المادة مطلوب" }, { status: 400 });
 
   const owned = await loadOwned(id, account.user.id);
   if (owned.error) return owned.error;
 
+  const { data: toDelete } = await supabaseAdmin.from("materials").select("drive_link").eq("id", id).maybeSingle();
   const { error } = await supabaseAdmin.from("materials").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  await trashDriveLink(toDelete?.drive_link);
   await logActivity({ actor: account, action: "material_deleted_by_owner", target_type: "material", target_id: id, title_ar: owned.data!.title_ar, course_id: owned.data!.course_id });
   return NextResponse.json({ ok: true });
 }

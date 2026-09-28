@@ -81,8 +81,8 @@ function UniversityWorkspace(){
       <div className="flex items-start justify-between">
        <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-olive/7 text-lg text-olive-dark">◧</span>
        <span className="flex items-center gap-3">
-        <button onClick={e=>openEdit(f,e)} className="text-xs font-black text-ink/40 opacity-0 transition hover:text-olive-dark group-hover:opacity-100">تعديل</button>
-        <button onClick={e=>del(f.id,e)} className="text-xs font-black text-clay-dark opacity-0 transition group-hover:opacity-100">حذف</button>
+        <button onClick={e=>openEdit(f,e)} className="rounded-lg border border-olive/10 px-2.5 py-1 text-xs font-black text-ink/55 transition hover:text-olive-dark">تعديل</button>
+        <button onClick={e=>del(f.id,e)} className="rounded-lg border border-clay/15 px-2.5 py-1 text-xs font-black text-clay-dark">حذف</button>
        </span>
       </div>
       <h3 className="mt-4 font-display text-lg font-bold text-olive-dark">{f.name_ar}</h3>

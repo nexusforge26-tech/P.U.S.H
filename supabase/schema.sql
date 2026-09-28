@@ -262,3 +262,30 @@ create policy "users create own doctor submissions" on doctor_submissions for in
 create policy "users read own doctor submissions" on doctor_submissions for select to authenticated using (user_id = auth.uid());
 -- لا حاجة لسياسة إدخال/تعديل على doctors نفسها: يتم إنشاؤها وتحديثها فقط
 -- عبر مفتاح الخدمة (service role) عند موافقة المسؤول على مساهمة.
+
+-- ===========================================================================
+-- تحديث: إجراءات الإدارة على الأعضاء (إيقاف/إعادة تفعيل/حذف) وربط ملفات Drive
+-- بمجلدات المساقات. قابل لإعادة التنفيذ بأمان.
+-- ===========================================================================
+
+-- الحساب الموقوف (suspended_at ليس فارغًا) يستطيع التصفح فقط، ولا يستطيع
+-- إرسال مساهمات ولا رفع ملفات ولا تعديل منشوراته.
+alter table profiles add column if not exists suspended_at timestamptz;
+
+-- نمنع الموقوف من الإدراج حتى لو استخدم مفتاح anon مباشرة بدل الـ API.
+drop policy if exists "users create own submissions" on submissions;
+create policy "users create own submissions" on submissions for insert to authenticated with check (
+  user_id = auth.uid()
+  and not exists (select 1 from profiles p where p.id = auth.uid() and p.suspended_at is not null)
+);
+
+-- عند تنفيذ هذا الملف من جديد تتم إعادة إنشاء قيد submission_has_source
+-- القديم أعلاه، لذلك نعيد القيد الصحيح (لا ينطبق على اقتراح المساقات) هنا.
+alter table submissions alter column title_ar drop not null;
+alter table submissions alter column type drop not null;
+alter table submissions drop constraint if exists submission_has_source;
+alter table submissions add constraint submission_has_source check (
+  kind = 'course'
+  or (type = 'video' and youtube_id is not null)
+  or (type <> 'video' and drive_link is not null)
+);
