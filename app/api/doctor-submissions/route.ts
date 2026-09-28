@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getRequestUser, suspendedResponse } from "@/lib/auth";
+import { getRequestUser } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
 
 export async function GET(req: NextRequest) {
@@ -18,7 +18,6 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const account = await getRequestUser(req);
   if (!account) return NextResponse.json({ error: "يجب تسجيل الدخول أولًا" }, { status: 401 });
-  const blocked = suspendedResponse(account); if (blocked) return blocked;
   const body = await req.json();
   const kind = body.kind === "edit" ? "edit" : "new";
   const { full_name, email, phone, office_location, university_id, faculty_id, target_doctor_id } = body;

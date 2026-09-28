@@ -39,13 +39,12 @@
 NEXT_PUBLIC_SUPABASE_URL=https://xxxxxxxxxxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOi...
 SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOi...
-GOOGLE_OAUTH_CLIENT_ID=xxxxxxxx.apps.googleusercontent.com
-GOOGLE_OAUTH_CLIENT_SECRET=GOCSPX-xxxxxxxx
-GOOGLE_OAUTH_REFRESH_TOKEN=1//0gxxxxxxxx
-GOOGLE_DRIVE_FOLDER_ID=https://drive.google.com/drive/folders/1AbCDEfGhIjKlMnOpQrStUvWxYz
+GOOGLE_SERVICE_ACCOUNT_EMAIL=push-uploader@your-project.iam.gserviceaccount.com
+GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+GOOGLE_DRIVE_FOLDER_ID=1AbCDEfGhIjKlMnOpQrStUvWxYz
 ```
 
-`SUPABASE_SERVICE_ROLE_KEY` سري ويجب أن يبقى في السيرفر/متغيرات Vercel فقط. متغيرات `GOOGLE_OAUTH_*` و`GOOGLE_DRIVE_FOLDER_ID` تربط الموقع بـ Drive المؤسس، فتُخزَّن كل الملفات المرفوعة هناك وتُحسب على مساحته (راجع `.env.example` لخطوات الإعداد، والسكربت `scripts/get-drive-token.mjs`).
+`SUPABASE_SERVICE_ROLE_KEY` سري ويجب أن يبقى في السيرفر/متغيرات Vercel فقط. متغيرات `GOOGLE_SERVICE_ACCOUNT_*` و`GOOGLE_DRIVE_FOLDER_ID` مطلوبة لرفع الملفات مباشرة إلى Drive الموقع (راجع `.env.example` لخطوات إنشاء حساب الخدمة).
 
 ## الحسابات والصلاحيات
 
@@ -77,19 +76,6 @@ GOOGLE_DRIVE_FOLDER_ID=https://drive.google.com/drive/folders/1AbCDEfGhIjKlMnOpQ
 2. راجع المادة وصاحبها.
 3. اختر «قبول ونشر» أو «رفض».
 4. عند القبول تُنسخ المادة إلى `materials` وتظهر للعامة.
-
-## إجراءات الإدارة
-
-- **الأعضاء:** تغيير الصلاحية، **إيقاف** الحساب (يتصفح فقط ولا يرسل مساهمات ولا يرفع ملفات ولا يعدّل منشوراته) وإعادة تفعيله، و**حذف** الحساب نهائيًا. لا يمكن التصرف بحسابك أنت ولا بحساب المالك، والمسؤول لا يدير مسؤولين آخرين (المالك فقط).
-- **الموارد:** تعديل وحذف الجامعات والكليات والمساقات والمنشورات. الحذف يشمل كل ما تحته، وتنتقل ملفات Drive المرتبطة إلى **سلة Drive** (قابلة للاسترجاع) بدل الحذف النهائي.
-- كل الإجراءات تظهر في «سجل المنشورات».
-
-## تخزين الملفات في Google Drive
-
-- كل ملف (امتحان/ملخص/ملف) يُرفع من الجهاز ويُخزَّن داخل **مجلد خاص بمساقه** في Drive الموقع: `المجلد الجذر / اسم المساق (رمزه) / الملف`. يُنشأ مجلد المساق تلقائيًا عند أول رفع.
-- **لا تُقبل روابط خارجية:** أي رابط ملف يجب أن يكون لملف رفعه الموقع نفسه، ويتحقق السيرفر من ذلك عند الإرسال وعند الإضافة/التعديل من الإدارة. الفيديوهات فقط تستخدم روابط YouTube.
-- عند استبدال ملف أو حذف منشور تُنقل النسخة القديمة إلى سلة Drive.
-- يجب اختيار المساق قبل الرفع.
 
 ## معلومات الدكاترة
 

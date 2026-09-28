@@ -119,7 +119,7 @@ function MaterialForm({courseId,password,onSaved,existing}:{courseId:string;pass
   <input value={year} onChange={e=>setYear(e.target.value)} placeholder="العام الدراسي" className={input}/>
   {type==="video"
    ?<input required value={link} onChange={e=>setLink(e.target.value)} placeholder="رابط YouTube" className={input}/>
-   :<DriveFileInput token={password} courseId={courseId} currentLink={link} onUploaded={l=>setLink(l)}/>}
+   :<DriveFileInput token={password} currentLink={link} onUploaded={l=>setLink(l)}/>}
   <label className="flex gap-3 rounded-2xl border border-olive/10 p-3"><input type="checkbox" checked={featured} onChange={e=>setFeatured(e.target.checked)}/><span className="text-sm font-bold">مادة مميزة</span></label>
   <button disabled={busy||!link} className="w-full rounded-2xl bg-clay py-3.5 font-black text-parchment">{busy?"جارٍ الحفظ...":existing?"حفظ التعديلات":"إضافة المنشور"}</button>
  </form>

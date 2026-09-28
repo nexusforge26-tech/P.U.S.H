@@ -5,8 +5,6 @@ const input = "w-full rounded-2xl border border-olive/10 bg-[#fbfaf7] px-4 py-3 
 
 interface Props {
   token: string;
-  courseId: string; // الملف يُخزَّن داخل مجلد هذا المساق في Drive
-
   currentLink?: string;
   currentName?: string;
   onUploaded: (link: string, fileName: string) => void;
@@ -14,7 +12,7 @@ interface Props {
 
 // يرفع الملف مباشرة من جهاز المستخدم إلى Google Drive الخاص بالموقع (عبر
 // /api/upload/drive)، ثم يعيد رابط Drive الناتج ليُخزَّن كـ drive_link.
-export default function DriveFileInput({ token, courseId, currentLink, currentName, onUploaded }: Props) {
+export default function DriveFileInput({ token, currentLink, currentName, onUploaded }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [uploadedName, setUploadedName] = useState(currentName || "");
@@ -26,7 +24,6 @@ export default function DriveFileInput({ token, courseId, currentLink, currentNa
     setError("");
     const fd = new FormData();
     fd.append("file", file);
-    fd.append("course_id", courseId);
     try {
       const r = await fetch("/api/upload/drive", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd });
       const d = await r.json();
@@ -43,8 +40,7 @@ export default function DriveFileInput({ token, courseId, currentLink, currentNa
 
   return (
     <div className="space-y-2">
-      <input type="file" onChange={handleFile} disabled={busy || !courseId} className={input} />
-      {!courseId && <p className="text-xs font-bold text-ink/50">اختر المساق أولًا ليُحفظ الملف داخل مجلده في Google Drive.</p>}
+      <input type="file" onChange={handleFile} disabled={busy} className={input} />
       {busy && <p className="text-xs font-bold text-olive-dark">جارٍ رفع الملف إلى Google Drive...</p>}
       {error && <p className="text-xs font-bold text-clay-dark">{error}</p>}
       {!busy && !error && (currentLink || uploadedName) && (

@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getRequestUser, suspendedResponse } from "@/lib/auth";
+import { getRequestUser } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
-import { isSiteDriveLink } from "@/lib/googleDrive";
 
 function extractYoutubeId(input: string): string | null {
   const trimmed = input.trim();
@@ -28,7 +27,6 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const account = await getRequestUser(req);
   if (!account) return NextResponse.json({ error: "يجب تسجيل الدخول أولًا" }, { status: 401 });
-  const blocked = suspendedResponse(account); if (blocked) return blocked;
   const body = await req.json();
   const kind = body.kind === "course" ? "course" : "material";
 
@@ -64,10 +62,6 @@ export async function POST(req: NextRequest) {
     payload.youtube_id = id;
   } else {
     if (!drive_link?.trim()) return NextResponse.json({ error: "رابط Google Drive مطلوب" }, { status: 400 });
-    // فقط الملفات المخزَّنة في Drive الخاص بالموقع تُقبل، وليس أي رابط خارجي.
-    if (!(await isSiteDriveLink(drive_link))) {
-      return NextResponse.json({ error: "يجب رفع الملف من جهازك ليُخزَّن في Google Drive الخاص بالموقع" }, { status: 400 });
-    }
     payload.drive_link = drive_link.trim();
   }
 

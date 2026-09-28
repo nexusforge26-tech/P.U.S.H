@@ -2,9 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireRole } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
-import { isSiteDriveLink, trashDriveLink } from "@/lib/googleDrive";
-
-const DRIVE_ONLY_ERROR = "يجب رفع الملف من جهازك ليُخزَّن في Google Drive الخاص بالموقع";
 
 function extractYoutubeId(input: string): string | null {
   const trimmed = input.trim();
@@ -140,7 +137,6 @@ export async function POST(req: NextRequest) {
     payload.youtube_id = youtubeId;
   } else {
     if (!drive_link) return NextResponse.json({ error: "رابط Google Drive مطلوب" }, { status: 400 });
-    if (!(await isSiteDriveLink(drive_link))) return NextResponse.json({ error: DRIVE_ONLY_ERROR }, { status: 400 });
     payload.drive_link = drive_link;
   }
 
@@ -156,7 +152,6 @@ export async function PATCH(req: NextRequest) {
   const body = await req.json();
   const { id, course_id, title_ar, description_ar, type, academic_year, semester, drive_link, youtube_input, is_featured } = body;
   if (!id || !course_id || !title_ar || !type) return NextResponse.json({ error: "الحقول الأساسية ناقصة" }, { status: 400 });
-  const { data: previous } = await supabaseAdmin.from("materials").select("drive_link").eq("id", id).maybeSingle();
 
   const payload: Record<string, unknown> = {
     course_id, title_ar, description_ar: description_ar || null, type,
@@ -169,17 +164,11 @@ export async function PATCH(req: NextRequest) {
     payload.youtube_id = youtubeId;
   } else {
     if (!drive_link) return NextResponse.json({ error: "رابط Google Drive مطلوب" }, { status: 400 });
-    // الروابط القديمة غير المتغيرة تبقى كما هي؛ أي رابط جديد يجب أن يكون ملفًا مرفوعًا إلى Drive الموقع.
-    if (drive_link !== previous?.drive_link && !(await isSiteDriveLink(drive_link))) {
-      return NextResponse.json({ error: DRIVE_ONLY_ERROR }, { status: 400 });
-    }
     payload.drive_link = drive_link;
   }
 
   const { data, error } = await supabaseAdmin.from("materials").update(payload).eq("id", id).select(select).single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  // إذا استُبدل الملف بآخر جديد، ينتقل القديم إلى سلة Drive حتى لا تتراكم ملفات يتيمة.
-  if (previous?.drive_link && previous.drive_link !== data.drive_link) await trashDriveLink(previous.drive_link);
   await logActivity({ actor, action: "material_updated", target_type: "material", target_id: data.id, title_ar: data.title_ar, course_id: data.course_id });
   return NextResponse.json({ data: flatten(data) });
 }
@@ -189,10 +178,9 @@ export async function DELETE(req: NextRequest) {
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
   const id = new URL(req.url).searchParams.get("id");
   if (!id) return NextResponse.json({ error: "معرّف المادة مطلوب" }, { status: 400 });
-  const { data: existing } = await supabaseAdmin.from("materials").select("id,title_ar,course_id,drive_link").eq("id", id).maybeSingle();
+  const { data: existing } = await supabaseAdmin.from("materials").select("id,title_ar,course_id").eq("id", id).maybeSingle();
   const { error } = await supabaseAdmin.from("materials").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  await trashDriveLink(existing?.drive_link);
   await logActivity({ actor, action: "material_deleted", target_type: "material", target_id: id, title_ar: existing?.title_ar ?? null, course_id: existing?.course_id ?? null });
   return NextResponse.json({ ok: true });
 }
