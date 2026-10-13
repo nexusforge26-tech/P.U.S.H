@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import MaterialCard from "@/components/MaterialCard";
+import SemesterCourseButton from "@/components/SemesterCourseButton";
 import { getCourseById, getFacultyById, getUniversityById, searchMaterials } from "@/lib/data";
 
 export const revalidate = 30;
@@ -27,7 +28,20 @@ export default async function CourseMaterialsPage({ params }: { params: { id: st
           <span className="mt-4 block text-xs font-bold tracking-widest text-clay">منشورات المساق</span>
           <h1 className="mt-2 font-display text-4xl font-bold text-olive-dark sm:text-5xl">{course.name_ar}</h1>
           <p className="mt-3 text-sm leading-7 text-ink/55">{course.code ? `رمز المساق: ${course.code}` : "بدون رمز"} · {items.length} منشور</p>
-          <Link href={`/submit?course=${course.id}`} className="mt-5 inline-flex rounded-2xl bg-clay px-5 py-3 text-sm font-black text-parchment hover:bg-clay-dark">+ أضف مادة لهذا المساق</Link>
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            <SemesterCourseButton
+              course={{
+                id: course.id,
+                name_ar: course.name_ar,
+                code: course.code,
+                university_name: university.name_ar,
+                faculty_name: faculty.name_ar,
+                university_id: university.id,
+                faculty_id: faculty.id,
+              }}
+            />
+            <Link href={`/submit?course=${course.id}`} className="inline-flex rounded-2xl bg-clay px-5 py-3 text-sm font-black text-parchment hover:bg-clay-dark shadow-card">+ أضف مادة لهذا المساق</Link>
+          </div>
         </div>
       </section>
 
