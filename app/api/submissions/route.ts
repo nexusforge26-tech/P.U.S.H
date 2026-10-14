@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   const account = await getRequestUser(req);
   if (!account) return NextResponse.json({ error: "يجب تسجيل الدخول" }, { status: 401 });
   const { data, error } = await supabaseAdmin.from("submissions")
-    .select("id,kind,title_ar,type,status,admin_note,created_at,reviewed_at,courses:course_id(name_ar),suggested_course_name,suggested_course_code,suggested_faculties:suggested_faculty_id(name_ar)")
+    .select("id,kind,title_ar,type,status,admin_note,created_at,reviewed_at,courses:course_id(name_ar),suggested_course_name,suggested_course_code,suggested_universities:suggested_university_id(name_ar)")
     .eq("user_id", account.user.id).order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ submissions: data ?? [] });
@@ -32,15 +32,15 @@ export async function POST(req: NextRequest) {
 
   // اقتراح مساق جديد بالكامل (بدون محتوى) — يحتاج موافقة المسؤول قبل ظهوره.
   if (kind === "course") {
-    const { suggested_course_name, suggested_course_code, suggested_faculty_id } = body;
-    if (!suggested_course_name?.trim() || !suggested_course_code?.trim() || !suggested_faculty_id) {
-      return NextResponse.json({ error: "اسم المساق ورقمه والكلية إجبارية" }, { status: 400 });
+    const { suggested_course_name, suggested_course_code, suggested_university_id } = body;
+    if (!suggested_course_name?.trim() || !suggested_course_code?.trim() || !suggested_university_id) {
+      return NextResponse.json({ error: "اسم المساق ورقمه والجامعة إجبارية" }, { status: 400 });
     }
     const payload = {
       user_id: account.user.id, kind: "course",
       suggested_course_name: suggested_course_name.trim(),
       suggested_course_code: suggested_course_code.trim(),
-      suggested_faculty_id,
+      suggested_university_id,
     };
     const { data, error } = await supabaseAdmin.from("submissions").insert(payload).select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

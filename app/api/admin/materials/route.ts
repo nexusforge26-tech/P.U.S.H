@@ -20,10 +20,7 @@ const select = `
   drive_link, youtube_id, is_featured, downloads_count, created_at, created_by,
   courses:course_id (
     name_ar, code,
-    faculties:faculty_id (
-      name_ar,
-      universities:university_id ( name_ar )
-    )
+    universities:university_id ( name_ar )
   )
 `;
 
@@ -32,8 +29,7 @@ function flatten(row: any) {
     ...row,
     course_name: row.courses?.name_ar ?? null,
     course_code: row.courses?.code ?? null,
-    faculty_name: row.courses?.faculties?.name_ar ?? null,
-    university_name: row.courses?.faculties?.universities?.name_ar ?? null,
+    university_name: row.courses?.universities?.name_ar ?? null,
   };
 }
 
@@ -46,29 +42,18 @@ export async function GET(req: NextRequest) {
   const featured = searchParams.get("featured") ?? "";
   // Accept both "university" and "university_id" for backwards compatibility.
   const universityId = searchParams.get("university_id") ?? searchParams.get("university") ?? "";
-  const facultyId = searchParams.get("faculty_id") ?? "";
   const courseIdParam = searchParams.get("course_id") ?? "";
   const page = Math.max(1, Number(searchParams.get("page") ?? 1));
   const pageSize = Math.min(50, Math.max(5, Number(searchParams.get("pageSize") ?? 12)));
   const from = (page - 1) * pageSize;
 
-  // Scope resolution, most specific first: a single course, then a faculty
-  // (all its courses), then a university (all courses under its faculties).
-  // The same courseIds scope is reused for the paginated items query and the
-  // aggregate stats below, so both reflect the requested level of the
-  // الجامعة ← الكلية ← المساق hierarchy instead of the whole platform.
+  // نطاق العرض: مساق واحد، أو كل مساقات جامعة (الجامعة ← المساق).
+  // نفس courseIds تُستخدم للقائمة المقسّمة على صفحات وللإحصاءات.
   let courseIds: string[] | null = null;
   if (courseIdParam) {
     courseIds = [courseIdParam];
-  } else if (facultyId) {
-    const { data: courses } = await supabaseAdmin.from("courses").select("id").eq("faculty_id", facultyId);
-    courseIds = (courses ?? []).map((c: any) => c.id);
   } else if (universityId) {
-    const { data: faculties } = await supabaseAdmin.from("faculties").select("id").eq("university_id", universityId);
-    const facultyIds = (faculties ?? []).map((f: any) => f.id);
-    const { data: courses } = facultyIds.length
-      ? await supabaseAdmin.from("courses").select("id").in("faculty_id", facultyIds)
-      : { data: [] as any[] };
+    const { data: courses } = await supabaseAdmin.from("courses").select("id").eq("university_id", universityId);
     courseIds = (courses ?? []).map((c: any) => c.id);
   }
 
@@ -86,13 +71,12 @@ export async function GET(req: NextRequest) {
     return courseIds.length ? builder.in("course_id", courseIds) : builder.eq("course_id", "00000000-0000-0000-0000-000000000000");
   }
 
-  const [materialsResult, totalResult, featuredResult, downloadsResult, universitiesResult, facultiesResult, coursesResult] = await Promise.all([
+  const [materialsResult, totalResult, featuredResult, downloadsResult, universitiesResult, coursesResult] = await Promise.all([
     query,
     scoped(supabaseAdmin.from("materials").select("id", { count: "exact", head: true })),
     scoped(supabaseAdmin.from("materials").select("id", { count: "exact", head: true }).eq("is_featured", true)),
     scoped(supabaseAdmin.from("materials").select("downloads_count")),
     supabaseAdmin.from("universities").select("id", { count: "exact", head: true }),
-    supabaseAdmin.from("faculties").select("id", { count: "exact", head: true }),
     supabaseAdmin.from("courses").select("id", { count: "exact", head: true }),
   ]);
 
@@ -109,7 +93,6 @@ export async function GET(req: NextRequest) {
     downloads,
     // These remain platform-wide counts (used for the general overview).
     universities: universitiesResult.count ?? 0,
-    faculties: facultiesResult.count ?? 0,
     courses: coursesResult.count ?? 0,
   };
 

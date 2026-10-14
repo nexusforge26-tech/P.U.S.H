@@ -6,14 +6,14 @@ import DoctorFilters from "@/components/DoctorFilters";
 export const revalidate = 30;
 
 interface Props {
-  searchParams: { q?: string; university?: string; faculty?: string };
+  searchParams: { q?: string; university?: string };
 }
 
 export default async function DoctorsPage({ searchParams }: Props) {
   let doctors: Awaited<ReturnType<typeof searchDoctors>> = [];
   let errored = false;
   try {
-    doctors = await searchDoctors({ q: searchParams.q, universityId: searchParams.university, facultyId: searchParams.faculty });
+    doctors = await searchDoctors({ q: searchParams.q, universityId: searchParams.university });
   } catch {
     errored = true;
   }
@@ -63,7 +63,7 @@ export default async function DoctorsPage({ searchParams }: Props) {
                 <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-olive/7 text-xl text-olive-dark">👤</span>
               </div>
               <h2 className="mt-4 font-display text-xl font-bold text-olive-dark">{d.full_name}</h2>
-              <p className="mt-1 text-xs font-bold text-ink/45">{d.university_name} · {d.faculty_name}</p>
+              <p className="mt-1 text-xs font-bold text-ink/45">{d.university_name}</p>
               <div className="mt-4 space-y-2 text-sm text-ink/65">
                 <p className="flex items-center gap-2"><span className="text-ink/35">✉</span> <span className="break-all">{d.email}</span></p>
                 {d.phone && <p className="flex items-center gap-2"><span className="text-ink/35">☎</span> {d.phone}</p>}

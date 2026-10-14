@@ -6,16 +6,9 @@ export interface University {
   created_at?: string;
 }
 
-export interface Faculty {
-  id: string;
-  university_id: string;
-  name_ar: string;
-  created_at?: string;
-}
-
 export interface Course {
   id: string;
-  faculty_id: string;
+  university_id: string;
   name_ar: string;
   code: string | null;
   created_at?: string;
@@ -38,7 +31,6 @@ export interface Material {
   // joined fields (populated via query)
   course_name?: string;
   course_code?: string | null;
-  faculty_name?: string;
   university_name?: string;
 }
 
@@ -59,7 +51,7 @@ export interface Submission {
   youtube_id: string | null;
   suggested_course_name?: string | null;
   suggested_course_code?: string | null;
-  suggested_faculty_id?: string | null;
+  suggested_university_id?: string | null;
   status: SubmissionStatus;
   admin_note: string | null;
   created_at: string;
@@ -72,13 +64,11 @@ export interface Doctor {
   phone: string | null;
   office_location: string | null;
   university_id: string;
-  faculty_id: string;
   courses: string[];
   created_at: string;
   updated_at?: string;
   // joined fields (populated via query)
   university_name?: string;
-  faculty_name?: string;
 }
 
 export type DoctorSubmissionKind = "new" | "edit";
@@ -93,7 +83,6 @@ export interface DoctorSubmission {
   phone: string | null;
   office_location: string | null;
   university_id: string;
-  faculty_id: string;
   courses: string[];
   status: SubmissionStatus;
   admin_note: string | null;
@@ -126,9 +115,10 @@ export const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   university_added: "أضاف جامعة",
   university_updated: "عدّل جامعة",
   university_deleted: "حذف جامعة",
-  faculty_added: "أضاف كلية",
-  faculty_updated: "عدّل كلية",
-  faculty_deleted: "حذف كلية",
+  // أحداث قديمة (الكليات أُلغيت) تبقى مسمّاة حتى يظهر السجل التاريخي بشكل صحيح.
+  faculty_added: "أضاف كلية (قديم)",
+  faculty_updated: "عدّل كلية (قديم)",
+  faculty_deleted: "حذف كلية (قديم)",
   course_added: "أضاف مساقًا مباشرة",
   course_updated: "عدّل مساقًا",
   course_deleted: "حذف مساقًا",

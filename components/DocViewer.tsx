@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import BookmarkButton from "./BookmarkButton";
 import type { Material } from "@/lib/types";
 
 interface DocViewerProps {
@@ -133,9 +132,6 @@ export default function DocViewer({ material, className = "" }: DocViewerProps) 
           >
             {isDarkMode ? "☀️" : "🌙"}
           </button>
-
-          {/* Bookmark Button */}
-          <BookmarkButton material={material} variant="toolbar" />
 
           {/* Open in new window */}
           {rawLink && (

@@ -1,4 +1,4 @@
-import type { University, Faculty, Course, Material, Doctor } from "./types";
+import type { University, Course, Material, Doctor } from "./types";
 
 export const MOCK_UNIVERSITIES: University[] = [
   { id: "uni-ppu", name_ar: "جامعة بوليتكنك فلسطين (PPU)", created_at: "2024-01-01T00:00:00Z" },
@@ -9,22 +9,14 @@ export const MOCK_UNIVERSITIES: University[] = [
   { id: "uni-qou", name_ar: "جامعة القدس المفتوحة", created_at: "2024-01-01T00:00:00Z" },
 ];
 
-export const MOCK_FACULTIES: Faculty[] = [
-  { id: "fac-ppu-it", university_id: "uni-ppu", name_ar: "كلية تكنولوجيا المعلومات وهندسة الحاسوب", created_at: "2024-01-01T00:00:00Z" },
-  { id: "fac-ppu-eng", university_id: "uni-ppu", name_ar: "كلية الهندسة", created_at: "2024-01-01T00:00:00Z" },
-  { id: "fac-ppu-sci", university_id: "uni-ppu", name_ar: "كلية العلوم التطبيقية", created_at: "2024-01-01T00:00:00Z" },
-  { id: "fac-najah-it", university_id: "uni-najah", name_ar: "كلية الهندسة وتكنولوجيا المعلومات", created_at: "2024-01-01T00:00:00Z" },
-  { id: "fac-bzu-it", university_id: "uni-birzeit", name_ar: "كلية تكنولوجيا المعلومات والذكاء الاصطناعي", created_at: "2024-01-01T00:00:00Z" },
-];
-
 export const MOCK_COURSES: Course[] = [
-  { id: "crs-calc1", faculty_id: "fac-ppu-it", name_ar: "تفاضل وتكامل 1", code: "MATH101", created_at: "2024-01-01T00:00:00Z" },
-  { id: "crs-calc2", faculty_id: "fac-ppu-it", name_ar: "تفاضل وتكامل 2", code: "MATH102", created_at: "2024-01-01T00:00:00Z" },
-  { id: "crs-ds", faculty_id: "fac-ppu-it", name_ar: "هياكل البيانات والخوارزميات", code: "CS201", created_at: "2024-01-01T00:00:00Z" },
-  { id: "crs-se", faculty_id: "fac-ppu-it", name_ar: "هندسة البرمجيات والتصميم المتقدم", code: "CS301", created_at: "2024-01-01T00:00:00Z" },
-  { id: "crs-db", faculty_id: "fac-ppu-it", name_ar: "قواعد البيانات ونظم إدارة المعلومات", code: "CS205", created_at: "2024-01-01T00:00:00Z" },
-  { id: "crs-net", faculty_id: "fac-ppu-it", name_ar: "شبكات الحاسوب والاتصالات", code: "CE302", created_at: "2024-01-01T00:00:00Z" },
-  { id: "crs-phys1", faculty_id: "fac-ppu-sci", name_ar: "فيزياء عامة 1", code: "PHYS101", created_at: "2024-01-01T00:00:00Z" },
+  { id: "crs-calc1", university_id: "uni-ppu", name_ar: "تفاضل وتكامل 1", code: "MATH101", created_at: "2024-01-01T00:00:00Z" },
+  { id: "crs-calc2", university_id: "uni-ppu", name_ar: "تفاضل وتكامل 2", code: "MATH102", created_at: "2024-01-01T00:00:00Z" },
+  { id: "crs-ds", university_id: "uni-ppu", name_ar: "هياكل البيانات والخوارزميات", code: "CS201", created_at: "2024-01-01T00:00:00Z" },
+  { id: "crs-se", university_id: "uni-ppu", name_ar: "هندسة البرمجيات والتصميم المتقدم", code: "CS301", created_at: "2024-01-01T00:00:00Z" },
+  { id: "crs-db", university_id: "uni-ppu", name_ar: "قواعد البيانات ونظم إدارة المعلومات", code: "CS205", created_at: "2024-01-01T00:00:00Z" },
+  { id: "crs-net", university_id: "uni-ppu", name_ar: "شبكات الحاسوب والاتصالات", code: "CE302", created_at: "2024-01-01T00:00:00Z" },
+  { id: "crs-phys1", university_id: "uni-ppu", name_ar: "فيزياء عامة 1", code: "PHYS101", created_at: "2024-01-01T00:00:00Z" },
 ];
 
 export const MOCK_MATERIALS: Material[] = [
@@ -43,7 +35,6 @@ export const MOCK_MATERIALS: Material[] = [
     created_at: "2024-10-01T10:00:00Z",
     course_name: "تفاضل وتكامل 1",
     course_code: "MATH101",
-    faculty_name: "كلية تكنولوجيا المعلومات وهندسة الحاسوب",
     university_name: "جامعة بوليتكنك فلسطين (PPU)",
   },
   {
@@ -61,7 +52,6 @@ export const MOCK_MATERIALS: Material[] = [
     created_at: "2024-09-25T11:30:00Z",
     course_name: "هياكل البيانات والخوارزميات",
     course_code: "CS201",
-    faculty_name: "كلية تكنولوجيا المعلومات وهندسة الحاسوب",
     university_name: "جامعة بوليتكنك فلسطين (PPU)",
   },
   {
@@ -79,7 +69,6 @@ export const MOCK_MATERIALS: Material[] = [
     created_at: "2024-09-20T14:00:00Z",
     course_name: "هندسة البرمجيات والتصميم المتقدم",
     course_code: "CS301",
-    faculty_name: "كلية تكنولوجيا المعلومات وهندسة الحاسوب",
     university_name: "جامعة بوليتكنك فلسطين (PPU)",
   },
   {
@@ -97,7 +86,6 @@ export const MOCK_MATERIALS: Material[] = [
     created_at: "2024-09-15T09:00:00Z",
     course_name: "شبكات الحاسوب والاتصالات",
     course_code: "CE302",
-    faculty_name: "كلية تكنولوجيا المعلومات وهندسة الحاسوب",
     university_name: "جامعة بوليتكنك فلسطين (PPU)",
   },
   {
@@ -115,7 +103,6 @@ export const MOCK_MATERIALS: Material[] = [
     created_at: "2024-08-30T16:00:00Z",
     course_name: "قواعد البيانات ونظم إدارة المعلومات",
     course_code: "CS205",
-    faculty_name: "كلية تكنولوجيا المعلومات وهندسة الحاسوب",
     university_name: "جامعة بوليتكنك فلسطين (PPU)",
   },
   {
@@ -133,7 +120,6 @@ export const MOCK_MATERIALS: Material[] = [
     created_at: "2024-08-20T12:00:00Z",
     course_name: "فيزياء عامة 1",
     course_code: "PHYS101",
-    faculty_name: "كلية العلوم التطبيقية",
     university_name: "جامعة بوليتكنك فلسطين (PPU)",
   },
 ];
@@ -146,11 +132,9 @@ export const MOCK_DOCTORS: Doctor[] = [
     phone: "02-2234455",
     office_location: "مبنى B - الطابق الثالث - مكتب 310",
     university_id: "uni-ppu",
-    faculty_id: "fac-ppu-it",
     courses: ["تفاضل وتكامل 1", "هياكل البيانات والخوارزميات"],
     created_at: "2024-01-01T00:00:00Z",
     university_name: "جامعة بوليتكنك فلسطين (PPU)",
-    faculty_name: "كلية تكنولوجيا المعلومات وهندسة الحاسوب",
   },
   {
     id: "doc-2",
@@ -159,10 +143,8 @@ export const MOCK_DOCTORS: Doctor[] = [
     phone: "02-2234460",
     office_location: "مبنى واد الهرية - الطابق الثاني",
     university_id: "uni-ppu",
-    faculty_id: "fac-ppu-it",
     courses: ["شبكات الحاسوب والاتصالات", "أمن المعلومات"],
     created_at: "2024-01-01T00:00:00Z",
     university_name: "جامعة بوليتكنك فلسطين (PPU)",
-    faculty_name: "كلية تكنولوجيا المعلومات وهندسة الحاسوب",
   },
 ];

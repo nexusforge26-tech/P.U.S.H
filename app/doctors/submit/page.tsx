@@ -3,8 +3,8 @@ import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
-import { getDoctorById, getFaculties, getUniversities, searchDoctors } from "@/lib/data";
-import type { Doctor, Faculty, University } from "@/lib/types";
+import { getDoctorById, getUniversities, searchDoctors } from "@/lib/data";
+import type { Doctor, University } from "@/lib/types";
 
 const input = "w-full rounded-2xl border border-olive/10 bg-[#fbfaf7] px-4 py-3 text-sm text-ink outline-none focus:border-gold focus:bg-white focus:ring-4 focus:ring-gold/10";
 
@@ -20,7 +20,6 @@ function SubmitDoctorForm() {
   const [mode, setMode] = useState<"new" | "edit">(preselectedEditId ? "edit" : "new");
 
   const [universities, setUniversities] = useState<University[]>([]);
-  const [faculties, setFaculties] = useState<Faculty[]>([]);
 
   const [existingDoctors, setExistingDoctors] = useState<Doctor[]>([]);
   const [targetId, setTargetId] = useState(preselectedEditId);
@@ -31,7 +30,6 @@ function SubmitDoctorForm() {
   const [phone, setPhone] = useState("");
   const [office, setOffice] = useState("");
   const [universityId, setUniversityId] = useState("");
-  const [facultyId, setFacultyId] = useState("");
   const [courses, setCourses] = useState<string[]>([""]);
 
   const [busy, setBusy] = useState(false);
@@ -48,10 +46,6 @@ function SubmitDoctorForm() {
   }, []);
 
   useEffect(() => { getUniversities().then(setUniversities).catch(() => setUniversities([])); }, []);
-  useEffect(() => {
-    if (!universityId) { setFaculties([]); return; }
-    getFaculties(universityId).then(setFaculties).catch(() => setFaculties([]));
-  }, [universityId]);
 
   // وضع "تعديل دكتور موجود": ابحث عن الدكتور المطلوب من القائمة.
   useEffect(() => {
@@ -71,14 +65,13 @@ function SubmitDoctorForm() {
       setPhone(d.phone || "");
       setOffice(d.office_location || "");
       setUniversityId(d.university_id);
-      setFacultyId(d.faculty_id);
       setCourses(d.courses.length ? d.courses : [""]);
     }).catch(() => setCurrent(null));
   }, [mode, targetId]);
 
   function resetForm() {
     setFullName(""); setEmail(""); setPhone(""); setOffice("");
-    setUniversityId(""); setFacultyId(""); setCourses([""]); setTargetId(""); setCurrent(null);
+    setUniversityId(""); setCourses([""]); setTargetId(""); setCurrent(null);
   }
 
   function switchMode(next: "new" | "edit") {
@@ -98,20 +91,17 @@ function SubmitDoctorForm() {
   const diffRows = useMemo(() => {
     if (mode !== "edit" || !current) return [];
     const uniName = universities.find((u) => u.id === universityId)?.name_ar || universityId;
-    const facName = faculties.find((f) => f.id === facultyId)?.name_ar || current.faculty_name || "";
     const oldUniName = current.university_name || current.university_id;
-    const oldFacName = current.faculty_name || current.faculty_id;
     const rows: { label: string; oldV: string; newV: string }[] = [
       { label: "الاسم الكامل", oldV: current.full_name, newV: fullName },
       { label: "البريد الإلكتروني", oldV: current.email, newV: email },
       { label: "الرقم الخاص", oldV: current.phone || "—", newV: phone || "—" },
       { label: "موقع المكتب", oldV: current.office_location || "—", newV: office || "—" },
       { label: "الجامعة", oldV: oldUniName, newV: uniName },
-      { label: "الكلية", oldV: oldFacName, newV: facName },
       { label: "المساقات", oldV: current.courses.join("، ") || "—", newV: cleanedCourses.join("، ") || "—" },
     ];
     return rows.filter((r) => r.oldV !== r.newV);
-  }, [mode, current, fullName, email, phone, office, universityId, facultyId, cleanedCourses, universities, faculties]);
+  }, [mode, current, fullName, email, phone, office, universityId, cleanedCourses, universities]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -125,7 +115,7 @@ function SubmitDoctorForm() {
         kind: mode,
         target_doctor_id: mode === "edit" ? targetId : undefined,
         full_name: fullName, email, phone, office_location: office,
-        university_id: universityId, faculty_id: facultyId, courses: cleanedCourses,
+        university_id: universityId, courses: cleanedCourses,
       }),
     });
     const d = await r.json();
@@ -158,7 +148,7 @@ function SubmitDoctorForm() {
             <select required value={targetId} onChange={(e) => setTargetId(e.target.value)} className={input}>
               <option value="">اختر الدكتور المطلوب تعديل معلوماته</option>
               {existingDoctors.map((d) => (
-                <option key={d.id} value={d.id}>{d.full_name} — {d.university_name} · {d.faculty_name}</option>
+                <option key={d.id} value={d.id}>{d.full_name} — {d.university_name}</option>
               ))}
             </select>
           )}
@@ -168,16 +158,10 @@ function SubmitDoctorForm() {
           <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="الرقم الخاص (اختياري)" className={input} />
           <input value={office} onChange={(e) => setOffice(e.target.value)} placeholder="موقع المكتب" className={input} />
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <select required value={universityId} onChange={(e) => { setUniversityId(e.target.value); setFacultyId(""); }} className={input}>
-              <option value="">اختر الجامعة</option>
-              {universities.map((u) => <option key={u.id} value={u.id}>{u.name_ar}</option>)}
-            </select>
-            <select required value={facultyId} disabled={!universityId} onChange={(e) => setFacultyId(e.target.value)} className={input}>
-              <option value="">{universityId ? "اختر الكلية" : "اختر الجامعة أولًا"}</option>
-              {faculties.map((f) => <option key={f.id} value={f.id}>{f.name_ar}</option>)}
-            </select>
-          </div>
+          <select required value={universityId} onChange={(e) => setUniversityId(e.target.value)} className={input}>
+            <option value="">اختر الجامعة</option>
+            {universities.map((u) => <option key={u.id} value={u.id}>{u.name_ar}</option>)}
+          </select>
 
           <div>
             <p className="mb-2 text-xs font-bold text-ink/50">المساقات التي يدرّسها</p>

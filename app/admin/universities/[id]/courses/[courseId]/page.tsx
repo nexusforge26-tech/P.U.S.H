@@ -2,9 +2,9 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import AuthGate, { adminToken, logoutAdmin } from "../../../../../../AuthGate";
-import { AdminShell, Modal } from "../../../../../../AdminShell";
-import { MATERIAL_TYPE_LABELS, SEMESTER_LABELS, type Course, type Faculty, type Material, type MaterialType, type University } from "@/lib/types";
+import AuthGate, { adminToken, logoutAdmin } from "../../../../AuthGate";
+import { AdminShell, Modal } from "../../../../AdminShell";
+import { MATERIAL_TYPE_LABELS, SEMESTER_LABELS, type Course, type Material, type MaterialType, type University } from "@/lib/types";
 import DriveFileInput from "@/components/DriveFileInput";
 
 const input="w-full rounded-2xl border border-olive/10 bg-[#fbfaf7] px-4 py-3 text-sm text-ink outline-none focus:border-gold focus:bg-white focus:ring-4 focus:ring-gold/10";
@@ -12,17 +12,15 @@ const input="w-full rounded-2xl border border-olive/10 bg-[#fbfaf7] px-4 py-3 te
 export default function CourseAdminPage(){return <AuthGate><CourseWorkspace/></AuthGate>}
 
 function CourseWorkspace(){
- const {id,facultyId,courseId}=useParams<{id:string;facultyId:string;courseId:string}>();
+ const {id,courseId}=useParams<{id:string;courseId:string}>();
  const password=adminToken();
  const [universities,setUniversities]=useState<University[]>([]);
- const [faculties,setFaculties]=useState<Faculty[]>([]);
  const [courses,setCourses]=useState<Course[]>([]);
  const [materials,setMaterials]=useState<Material[]>([]);
  const [loading,setLoading]=useState(true);
  const [modal,setModal]=useState<"add"|Material|null>(null);
 
  const uni=universities.find(u=>u.id===id);
- const faculty=faculties.find(f=>f.id===facultyId);
  const course=courses.find(c=>c.id===courseId);
 
  async function load(){
@@ -31,7 +29,7 @@ function CourseWorkspace(){
    fetch("/api/admin/taxonomy",{headers:{Authorization:`Bearer ${password}`}}),
    fetch(`/api/admin/materials?course_id=${courseId}&pageSize=50`,{headers:{Authorization:`Bearer ${password}`}}),
   ]);
-  if(t.ok){const d=await t.json();setUniversities(d.universities||[]);setFaculties(d.faculties||[]);setCourses(d.courses||[])}
+  if(t.ok){const d=await t.json();setUniversities(d.universities||[]);setCourses(d.courses||[])}
   if(m.ok){const d=await m.json();setMaterials(d.items||[])}
   setLoading(false);
  }
@@ -50,10 +48,9 @@ function CourseWorkspace(){
     <div>
      <div className="flex flex-wrap items-center gap-2 text-sm font-bold text-parchment/55">
       <Link href="/admin" className="hover:text-parchment">الجامعات</Link><span>/</span>
-      <Link href={`/admin/universities/${id}`} className="hover:text-parchment">{uni?.name_ar||"..."}</Link><span>/</span>
-      <Link href={`/admin/universities/${id}/faculties/${facultyId}`} className="hover:text-parchment">{faculty?.name_ar||"..."}</Link>
+      <Link href={`/admin/universities/${id}`} className="hover:text-parchment">{uni?.name_ar||"..."}</Link>
      </div>
-     <div className="mt-5 text-xs font-black tracking-[0.2em] text-gold-light">المستوى 3 · المساق</div>
+     <div className="mt-5 text-xs font-black tracking-[0.2em] text-gold-light">المستوى 2 · المساق</div>
      <h1 className="mt-2 font-display text-4xl font-bold">{course?.name_ar||(loading?"...":"غير موجود")}</h1>
      <p className="mt-2 text-sm text-parchment/60">{course?.code?`رمز المساق: ${course.code}`:"بدون رمز"} · كل المنشورات (الملخصات، الامتحانات، الملفات، الفيديوهات) الخاصة بهذا المساق.</p>
     </div>

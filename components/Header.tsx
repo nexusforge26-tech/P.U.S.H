@@ -3,13 +3,11 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import SettingsMenu from "@/components/SettingsMenu";
-import BookmarksHeaderButton from "@/components/BookmarksHeaderButton";
 
 const NAV_LINKS = [
   { href: "/", label: "الرئيسية" },
   { href: "/universities", label: "تصفح متسلسل" },
   { href: "/browse", label: "المكتبة" },
-  { href: "/bookmarks", label: "محفوظاتي" },
   { href: "/doctors", label: "الدكاترة" },
   { href: "/browse?type=video", label: "فيديوهات" },
 ];
@@ -63,9 +61,8 @@ export default function Header() {
             </Link>
           ))}
         </nav>
-        {/* أزرار الإجراءات والمحفوظات */}
+        {/* أزرار الإجراءات */}
         <div className="flex items-center gap-2">
-          <BookmarksHeaderButton />
           {user ? (
             <SettingsMenu />
           ) : (

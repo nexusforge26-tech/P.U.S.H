@@ -3,11 +3,10 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireRole } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
 
-const select = `id,user_id,kind,target_doctor_id,full_name,email,phone,office_location,university_id,faculty_id,courses,status,admin_note,reviewed_by,reviewed_at,created_at,
+const select = `id,user_id,kind,target_doctor_id,full_name,email,phone,office_location,university_id,courses,status,admin_note,reviewed_by,reviewed_at,created_at,
   profiles:user_id(email,full_name),
   universities:university_id(name_ar),
-  faculties:faculty_id(name_ar),
-  target_doctor:target_doctor_id(id,full_name,email,phone,office_location,courses,university_id,faculty_id,updated_at,universities:university_id(name_ar),faculties:faculty_id(name_ar))`;
+  target_doctor:target_doctor_id(id,full_name,email,phone,office_location,courses,university_id,updated_at,universities:university_id(name_ar))`;
 
 function flatten(row: any) {
   return {
@@ -15,7 +14,6 @@ function flatten(row: any) {
     email: row.profiles?.email ?? "",
     user_name: row.profiles?.full_name ?? "",
     university_name: row.universities?.name_ar ?? "",
-    faculty_name: row.faculties?.name_ar ?? "",
     // بيانات الدكتور الحالية (قبل التعديل) — تُستخدم في لوحة الإدارة لعرض
     // الفرق بين القديم والمقترح عند مساهمات التعديل.
     current: row.kind === "edit" ? row.target_doctor ?? null : null,
@@ -50,7 +48,6 @@ export async function PATCH(req: NextRequest) {
       phone: submission.phone,
       office_location: submission.office_location,
       university_id: submission.university_id,
-      faculty_id: submission.faculty_id,
       courses: submission.courses,
     };
     if (submission.kind === "edit") {

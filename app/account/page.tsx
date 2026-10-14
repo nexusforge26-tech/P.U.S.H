@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
+import DriveFileInput from "@/components/DriveFileInput";
 import { MATERIAL_TYPE_LABELS, SELF_EDIT_WINDOW_HOURS, type Material, type MaterialType } from "@/lib/types";
 
 const input="w-full rounded-2xl border border-olive/10 bg-[#fbfaf7] px-4 py-3 text-sm text-ink outline-none focus:border-gold focus:bg-white focus:ring-4 focus:ring-gold/10";
@@ -63,7 +64,7 @@ export default function AccountPage(){
     </tbody></table>{!myMaterials.length&&<p className="p-10 text-center text-sm text-ink/40">لم تُنشر أي مادة باسمك بعد.</p>}</div>
    </section>
 
-   <section className="mt-7 rounded-[28px] border border-olive/10 bg-white p-6 shadow-card"><h2 className="font-display text-2xl font-bold text-olive-dark">مساهماتي</h2><p className="mt-1 text-sm text-ink/50">كل مادة أو مساق ترسله يحتاج موافقة المسؤولين قبل ظهوره للعامة.</p><div className="mt-5 overflow-x-auto"><table className="w-full min-w-[650px] text-right"><thead><tr className="border-b border-olive/10 text-xs font-black text-ink/40"><th className="p-3">العنوان</th><th className="p-3">النوع</th><th className="p-3">الحالة</th><th className="p-3">التاريخ</th></tr></thead><tbody>{items.map(x=><tr key={x.id} className="border-b border-olive/5"><td className="p-3 font-bold">{x.kind==="course"?x.suggested_course_name:x.title_ar}<div className="mt-1 text-xs font-normal text-ink/40">{x.kind==="course"?`اقتراح مساق · ${x.suggested_course_code} · ${x.suggested_faculties?.name_ar||""}`:x.courses?.name_ar||"—"}</div></td><td className="p-3 text-sm">{x.kind==="course"?"مساق جديد":MATERIAL_TYPE_LABELS[x.type as MaterialType]||"—"}</td><td className="p-3"><span className="rounded-full bg-olive/7 px-3 py-1 text-xs font-black">{status[x.status]||x.status}</span>{x.status==="rejected"&&x.admin_note&&<p className="mt-1 max-w-xs text-xs leading-5 text-clay-dark">{x.admin_note}</p>}</td><td className="p-3 text-xs text-ink/45">{new Date(x.created_at).toLocaleDateString("ar")}</td></tr>)}</tbody></table>{!items.length&&<p className="p-10 text-center text-sm text-ink/40">لم ترسل أي مساهمة بعد.</p>}</div></section>
+   <section className="mt-7 rounded-[28px] border border-olive/10 bg-white p-6 shadow-card"><h2 className="font-display text-2xl font-bold text-olive-dark">مساهماتي</h2><p className="mt-1 text-sm text-ink/50">كل مادة أو مساق ترسله يحتاج موافقة المسؤولين قبل ظهوره للعامة.</p><div className="mt-5 overflow-x-auto"><table className="w-full min-w-[650px] text-right"><thead><tr className="border-b border-olive/10 text-xs font-black text-ink/40"><th className="p-3">العنوان</th><th className="p-3">النوع</th><th className="p-3">الحالة</th><th className="p-3">التاريخ</th></tr></thead><tbody>{items.map(x=><tr key={x.id} className="border-b border-olive/5"><td className="p-3 font-bold">{x.kind==="course"?x.suggested_course_name:x.title_ar}<div className="mt-1 text-xs font-normal text-ink/40">{x.kind==="course"?`اقتراح مساق · ${x.suggested_course_code} · ${x.suggested_universities?.name_ar||""}`:x.courses?.name_ar||"—"}</div></td><td className="p-3 text-sm">{x.kind==="course"?"مساق جديد":MATERIAL_TYPE_LABELS[x.type as MaterialType]||"—"}</td><td className="p-3"><span className="rounded-full bg-olive/7 px-3 py-1 text-xs font-black">{status[x.status]||x.status}</span>{x.status==="rejected"&&x.admin_note&&<p className="mt-1 max-w-xs text-xs leading-5 text-clay-dark">{x.admin_note}</p>}</td><td className="p-3 text-xs text-ink/45">{new Date(x.created_at).toLocaleDateString("ar")}</td></tr>)}</tbody></table>{!items.length&&<p className="p-10 text-center text-sm text-ink/40">لم ترسل أي مساهمة بعد.</p>}</div></section>
  </div>
 
  {editing&&<EditModal material={editing} token={session?.access_token} onClose={()=>setEditing(null)} onSaved={()=>{setEditing(null);loadMine(session.access_token)}}/>}
@@ -93,8 +94,10 @@ function EditModal({material,token,onClose,onSaved}:{material:Material&{editable
    <textarea value={desc} onChange={e=>setDesc(e.target.value)} rows={3} placeholder="وصف اختياري" className={`${input} resize-none`}/>
    <input value={year} onChange={e=>setYear(e.target.value)} placeholder="العام الدراسي" className={input}/>
    <input value={sem} onChange={e=>setSem(e.target.value)} placeholder="الفصل الدراسي" className={input}/>
-   <input required value={link} onChange={e=>setLink(e.target.value)} placeholder={material.type==="video"?"رابط YouTube":"رابط Google Drive"} className={input}/>
-   <button disabled={busy} className="w-full rounded-2xl bg-olive py-3 font-black text-parchment">{busy?"جارٍ الحفظ...":"حفظ التعديلات"}</button>
+   {material.type==="video"
+    ?<input required value={link} onChange={e=>setLink(e.target.value)} placeholder="رابط YouTube" className={input}/>
+    :<DriveFileInput token={token} currentLink={link} onUploaded={(l)=>setLink(l)}/>}
+   <button disabled={busy||!link} className="w-full rounded-2xl bg-olive py-3 font-black text-parchment disabled:opacity-50">{busy?"جارٍ الحفظ...":"حفظ التعديلات"}</button>
    {err&&<div className="rounded-2xl bg-clay/5 p-3 text-sm font-bold text-clay-dark">{err}</div>}
   </form>
  </div></div>

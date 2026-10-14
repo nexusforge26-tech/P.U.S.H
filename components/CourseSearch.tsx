@@ -46,12 +46,12 @@ export default function CourseSearch() {
           {results.map((c) => (
             <Link
               key={c.id}
-              href={`/universities/${c.university_id}/${c.faculty_id}/${c.id}`}
+              href={`/universities/${c.university_id}/${c.id}`}
               className="flex items-center justify-between rounded-2xl border border-olive/10 bg-white p-4 shadow-card transition hover:border-gold/40"
             >
               <div>
                 <p className="font-bold text-olive-dark">{c.name_ar}</p>
-                <p className="mt-1 text-xs text-ink/45">{c.code} · {c.faculty_name} · {c.university_name}</p>
+                <p className="mt-1 text-xs text-ink/45">{c.code} · {c.university_name}</p>
               </div>
               <span className="text-clay">←</span>
             </Link>

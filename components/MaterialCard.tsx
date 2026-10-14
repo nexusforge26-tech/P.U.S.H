@@ -3,7 +3,6 @@ import Image from "next/image";
 import type { Material } from "@/lib/types";
 import TypeBadge from "@/components/TypeBadge";
 import TypeIcon from "@/components/TypeIcon";
-import BookmarkButton from "@/components/BookmarkButton";
 
 function youtubeThumb(id: string) {
   return `https://img.youtube.com/vi/${id}/hqdefault.jpg`;
@@ -14,11 +13,6 @@ export default function MaterialCard({ material }: { material: Material }) {
 
   return (
     <div className="group relative flex h-full flex-col overflow-hidden rounded-[26px] border border-olive/10 bg-white shadow-card transition duration-300 hover:-translate-y-1.5 hover:border-gold/40 hover:shadow-soft">
-      {/* Quick Bookmark Button positioned top-left */}
-      <div className="absolute top-3 left-3 z-20">
-        <BookmarkButton material={material} variant="icon" />
-      </div>
-
       <Link href={`/material/${material.id}`} className="flex flex-1 flex-col">
         {/* Media / Thumbnail area */}
         <div className="relative aspect-video-box overflow-hidden bg-olive-dark">

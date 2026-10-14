@@ -9,7 +9,7 @@ const WINDOW_MS = SELF_EDIT_WINDOW_HOURS * 60 * 60 * 1000;
 const select = `
   id, course_id, title_ar, description_ar, type, academic_year, semester,
   drive_link, youtube_id, is_featured, downloads_count, created_at, created_by,
-  courses:course_id ( name_ar, code, faculties:faculty_id ( name_ar, universities:university_id ( name_ar ) ) )
+  courses:course_id ( name_ar, code, universities:university_id ( name_ar ) )
 `;
 
 function flatten(row: any) {
@@ -17,8 +17,7 @@ function flatten(row: any) {
     ...row,
     course_name: row.courses?.name_ar ?? null,
     course_code: row.courses?.code ?? null,
-    faculty_name: row.courses?.faculties?.name_ar ?? null,
-    university_name: row.courses?.faculties?.universities?.name_ar ?? null,
+    university_name: row.courses?.universities?.name_ar ?? null,
     editable: Date.now() - new Date(row.created_at).getTime() < WINDOW_MS,
   };
 }

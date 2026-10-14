@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import YouTubePlayer from "@/components/YouTubePlayer";
 import TypeBadge from "@/components/TypeBadge";
 import DownloadButton from "@/components/DownloadButton";
-import BookmarkButton from "@/components/BookmarkButton";
 import DocViewer from "@/components/DocViewer";
 import { getMaterialById } from "@/lib/data";
 import { SEMESTER_LABELS } from "@/lib/types";
@@ -32,9 +31,6 @@ export default async function MaterialPage({ params }: { params: { id: string } 
         >
           <span>←</span> العودة إلى المكتبة
         </Link>
-        <div className="flex items-center gap-2">
-          <BookmarkButton material={material} variant="full" />
-        </div>
       </div>
 
       {/* Meta tags and Title */}
@@ -44,9 +40,6 @@ export default async function MaterialPage({ params }: { params: { id: string } 
           <span className="rounded-lg bg-olive/5 px-2.5 py-1 text-xs font-medium text-ink/70">
             {material.university_name}
           </span>
-        )}
-        {material.faculty_name && (
-          <span className="text-xs text-ink/50">· {material.faculty_name}</span>
         )}
       </div>
 

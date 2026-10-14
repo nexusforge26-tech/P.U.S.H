@@ -14,9 +14,9 @@ export default async function UniversitiesPage() {
       <section className="border-b border-olive/10 bg-[#eef1e9]">
         <div className="mx-auto max-w-5xl px-5 py-10 sm:px-8">
           <span className="text-xs font-bold tracking-widest text-clay">تصفح متسلسل</span>
-          <h1 className="mt-2 font-display text-4xl font-bold text-olive-dark sm:text-5xl">جامعة ← كلية ← مساق ← منشورات</h1>
+          <h1 className="mt-2 font-display text-4xl font-bold text-olive-dark sm:text-5xl">جامعة ← مساق ← منشورات</h1>
           <p className="mt-3 max-w-2xl text-sm leading-7 text-ink/55 sm:text-base">
-            اختر جامعتك ثم كليتك ثم مساقك لترى كل ما نُشر فيه، أو ابحث عن المساق مباشرةً باسمه أو رقمه.
+            اختر جامعتك ثم مساقك لترى كل ما نُشر فيه، أو ابحث عن المساق مباشرةً باسمه أو رقمه.
           </p>
           <div className="mt-7 max-w-xl">
             <CourseSearch />

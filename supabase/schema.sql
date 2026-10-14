@@ -1,4 +1,8 @@
 -- PUSH — schema + authentication/roles/submissions
+-- الهيكل الحالي: جامعة ← مساق ← منشورات (لا توجد كليات).
+-- هذا الملف للتثبيت على قاعدة جديدة فقط.
+-- إذا كانت قاعدتك قائمة وتحتوي على جدول faculties، نفّذ بدلًا منه:
+--   supabase/migrations/2026-10-13-remove-faculties.sql
 create extension if not exists "pgcrypto";
 create extension if not exists pg_trgm;
 
@@ -7,15 +11,9 @@ create table if not exists universities (
   name_ar text not null,
   created_at timestamptz not null default now()
 );
-create table if not exists faculties (
-  id uuid primary key default gen_random_uuid(),
-  university_id uuid not null references universities(id) on delete cascade,
-  name_ar text not null,
-  created_at timestamptz not null default now()
-);
 create table if not exists courses (
   id uuid primary key default gen_random_uuid(),
-  faculty_id uuid not null references faculties(id) on delete cascade,
+  university_id uuid not null references universities(id) on delete cascade,
   name_ar text not null,
   code text,
   created_at timestamptz not null default now()
@@ -35,8 +33,7 @@ create table if not exists materials (
   created_at timestamptz not null default now(),
   constraint material_has_source check ((type = 'video' and youtube_id is not null) or (type <> 'video' and drive_link is not null))
 );
-create index if not exists idx_faculties_university on faculties(university_id);
-create index if not exists idx_courses_faculty on courses(faculty_id);
+create index if not exists idx_courses_university on courses(university_id);
 create index if not exists idx_materials_course on materials(course_id);
 create index if not exists idx_materials_type on materials(type);
 create index if not exists idx_materials_featured on materials(is_featured);
@@ -117,18 +114,15 @@ alter table submissions add constraint submissions_user_id_fkey
   foreign key (user_id) references profiles(id) on delete cascade;
 
 alter table universities enable row level security;
-alter table faculties enable row level security;
 alter table courses enable row level security;
 alter table materials enable row level security;
 alter table profiles enable row level security;
 alter table submissions enable row level security;
 
 drop policy if exists "public read universities" on universities;
-drop policy if exists "public read faculties" on faculties;
 drop policy if exists "public read courses" on courses;
 drop policy if exists "public read materials" on materials;
 create policy "public read universities" on universities for select using (true);
-create policy "public read faculties" on faculties for select using (true);
 create policy "public read courses" on courses for select using (true);
 create policy "public read materials" on materials for select using (true);
 
@@ -160,11 +154,11 @@ alter table submissions alter column course_id drop not null;
 alter table submissions add column if not exists kind text not null default 'material' check (kind in ('material','course'));
 alter table submissions add column if not exists suggested_course_name text;
 alter table submissions add column if not exists suggested_course_code text;
-alter table submissions add column if not exists suggested_faculty_id uuid references faculties(id) on delete cascade;
+alter table submissions add column if not exists suggested_university_id uuid references universities(id) on delete cascade;
 alter table submissions drop constraint if exists submission_course_or_material_check;
 alter table submissions add constraint submission_course_or_material_check check (
   (kind = 'material' and course_id is not null) or
-  (kind = 'course' and suggested_course_name is not null and suggested_course_code is not null and suggested_faculty_id is not null)
+  (kind = 'course' and suggested_course_name is not null and suggested_course_code is not null and suggested_university_id is not null)
 );
 
 -- سجل المنشورات: من أضاف/نشر ماذا ومتى. يظهر فقط للمسؤول والمالك.
@@ -203,14 +197,12 @@ create table if not exists doctors (
   phone text,
   office_location text,
   university_id uuid not null references universities(id) on delete cascade,
-  faculty_id uuid not null references faculties(id) on delete cascade,
   courses text[] not null default '{}',
   created_by uuid references auth.users(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 create index if not exists idx_doctors_university on doctors(university_id);
-create index if not exists idx_doctors_faculty on doctors(faculty_id);
 create index if not exists idx_doctors_name_trgm on doctors using gin (full_name gin_trgm_ops);
 
 -- مساهمات معلومات الدكاترة: إما "دكتور جديد" (kind='new') أو "تعديل دكتور
@@ -227,7 +219,6 @@ create table if not exists doctor_submissions (
   phone text,
   office_location text,
   university_id uuid not null references universities(id) on delete cascade,
-  faculty_id uuid not null references faculties(id) on delete cascade,
   courses text[] not null default '{}',
   status text not null default 'pending' check (status in ('pending','approved','rejected')),
   admin_note text,

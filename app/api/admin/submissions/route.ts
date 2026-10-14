@@ -4,10 +4,10 @@ import { requireRole } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
 
 const select = `id,user_id,kind,course_id,title_ar,description_ar,type,academic_year,semester,drive_link,youtube_id,status,admin_note,reviewed_by,reviewed_at,created_at,
-  suggested_course_name,suggested_course_code,suggested_faculty_id,
+  suggested_course_name,suggested_course_code,suggested_university_id,
   profiles:user_id(email,full_name),
-  courses:course_id(name_ar,code,faculties:faculty_id(name_ar,universities:university_id(name_ar)) ),
-  suggested_faculties:suggested_faculty_id(name_ar,universities:university_id(name_ar))`;
+  courses:course_id(name_ar,code,universities:university_id(name_ar)),
+  suggested_universities:suggested_university_id(name_ar)`;
 
 function flatten(row: any) {
   return {
@@ -16,8 +16,7 @@ function flatten(row: any) {
     user_name: row.profiles?.full_name ?? "",
     course_name: row.kind === "course" ? row.suggested_course_name ?? "" : row.courses?.name_ar ?? "",
     course_code: row.kind === "course" ? row.suggested_course_code ?? "" : row.courses?.code ?? "",
-    faculty_name: row.kind === "course" ? row.suggested_faculties?.name_ar ?? "" : row.courses?.faculties?.name_ar ?? "",
-    university_name: row.kind === "course" ? row.suggested_faculties?.universities?.name_ar ?? "" : row.courses?.faculties?.universities?.name_ar ?? "",
+    university_name: row.kind === "course" ? row.suggested_universities?.name_ar ?? "" : row.courses?.universities?.name_ar ?? "",
   };
 }
 
@@ -45,11 +44,11 @@ export async function PATCH(req: NextRequest) {
 
   if (action === "approve") {
     if (submission.kind === "course") {
-      // اقتراح مساق جديد: عند القبول يُنشأ المساق فعليًا تحت الكلية المحددة.
+      // اقتراح مساق جديد: عند القبول يُنشأ المساق فعليًا تحت الجامعة المحددة.
       const { data: newCourse, error: courseError } = await supabaseAdmin.from("courses").insert({
         name_ar: submission.suggested_course_name,
         code: submission.suggested_course_code,
-        faculty_id: submission.suggested_faculty_id,
+        university_id: submission.suggested_university_id,
       }).select().single();
       if (courseError) return NextResponse.json({ error: courseError.message }, { status: 500 });
       await logActivity({ actor, action: "course_suggestion_approved", target_type: "course", target_id: newCourse.id, title_ar: newCourse.name_ar, course_id: newCourse.id });

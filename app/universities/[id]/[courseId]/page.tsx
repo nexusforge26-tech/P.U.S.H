@@ -1,18 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import MaterialCard from "@/components/MaterialCard";
-import SemesterCourseButton from "@/components/SemesterCourseButton";
-import { getCourseById, getFacultyById, getUniversityById, searchMaterials } from "@/lib/data";
+import { getCourseById, getUniversityById, searchMaterials } from "@/lib/data";
 
 export const revalidate = 30;
 
-export default async function CourseMaterialsPage({ params }: { params: { id: string; facultyId: string; courseId: string } }) {
-  const [university, faculty, course] = await Promise.all([
+export default async function CourseMaterialsPage({ params }: { params: { id: string; courseId: string } }) {
+  const [university, course] = await Promise.all([
     getUniversityById(params.id).catch(() => null),
-    getFacultyById(params.facultyId).catch(() => null),
     getCourseById(params.courseId).catch(() => null),
   ]);
-  if (!university || !faculty || !course || faculty.university_id !== university.id || course.faculty_id !== faculty.id) notFound();
+  if (!university || !course || course.university_id !== university.id) notFound();
 
   const { items } = await searchMaterials({ courseId: course.id, pageSize: 50 }).catch(() => ({ items: [], count: 0 }));
 
@@ -22,24 +20,12 @@ export default async function CourseMaterialsPage({ params }: { params: { id: st
         <div className="mx-auto max-w-6xl px-5 py-10 sm:px-8">
           <div className="flex flex-wrap items-center gap-2 text-sm font-bold text-olive/60">
             <Link href="/universities" className="hover:text-clay">الجامعات</Link><span>/</span>
-            <Link href={`/universities/${university.id}`} className="hover:text-clay">{university.name_ar}</Link><span>/</span>
-            <Link href={`/universities/${university.id}/${faculty.id}`} className="hover:text-clay">{faculty.name_ar}</Link>
+            <Link href={`/universities/${university.id}`} className="hover:text-clay">{university.name_ar}</Link>
           </div>
           <span className="mt-4 block text-xs font-bold tracking-widest text-clay">منشورات المساق</span>
           <h1 className="mt-2 font-display text-4xl font-bold text-olive-dark sm:text-5xl">{course.name_ar}</h1>
           <p className="mt-3 text-sm leading-7 text-ink/55">{course.code ? `رمز المساق: ${course.code}` : "بدون رمز"} · {items.length} منشور</p>
           <div className="mt-6 flex flex-wrap items-center gap-3">
-            <SemesterCourseButton
-              course={{
-                id: course.id,
-                name_ar: course.name_ar,
-                code: course.code,
-                university_name: university.name_ar,
-                faculty_name: faculty.name_ar,
-                university_id: university.id,
-                faculty_id: faculty.id,
-              }}
-            />
             <Link href={`/submit?course=${course.id}`} className="inline-flex rounded-2xl bg-clay px-5 py-3 text-sm font-black text-parchment hover:bg-clay-dark shadow-card">+ أضف مادة لهذا المساق</Link>
           </div>
         </div>
