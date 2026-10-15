@@ -362,7 +362,7 @@ export async function getMaterialById(id: string): Promise<Material | null> {
       .eq("id", id)
       .maybeSingle();
     if (fallback.error) throw fallback.error;
-    data = fallback.data as unknown as typeof data;
+    data = fallback.data;
   }
   return data ? flattenMaterial(data as unknown as Record<string, unknown>) : null;
 }

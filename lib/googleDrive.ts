@@ -5,12 +5,8 @@ import {
   MAX_UPLOAD_LABEL,
   validateUploadFileMeta,
 } from "@/lib/uploadLimits";
-import { extractDriveFileId } from "@/lib/validation";
+import { extractDriveFileId, extractDriveFolderId } from "@/lib/validation";
 import type { DriveQuotaInfo } from "@/lib/types";
-
-// Google Drive الخاص بالموقع بدون مكتبة googleapis الضخمة (نستخدم fetch المباشر + crypto المدمج في Node.js).
-// الأولوية: OAuth عبر Refresh Token لحساب Google شخصي (يستخدم مساحة ذلك الحساب).
-// البديل: Service Account، ويعمل فقط مع Shared Drive في Google Workspace (لأنه لا يملك مساحة تخزين خاصة).
 
 let cachedToken: { token: string; expiresAt: number } | null = null;
 
@@ -22,7 +18,7 @@ function base64UrlEncode(input: string | Buffer): string {
     .replace(/\//g, "_");
 }
 
-async function getAccessToken(): Promise<string> {
+export async function getDriveAccessToken(): Promise<string> {
   if (cachedToken && Date.now() < cachedToken.expiresAt - 60_000) {
     return cachedToken.token;
   }
@@ -122,7 +118,7 @@ export interface DriveUploadResult {
   mimeType: string | null;
 }
 
-interface DriveFileMetadata {
+export interface DriveFileMetadata {
   id: string;
   name?: string;
   mimeType?: string;
@@ -132,12 +128,100 @@ interface DriveFileMetadata {
 }
 
 /**
- * يحذف ملفًا من Google Drive (إذا كان ينتمي لمجلد الموقع).
+ * يستعلم عن بيانات ملف في Google Drive عبر معرّفه.
  */
+export async function getDriveFileMetadata(fileId: string): Promise<DriveFileMetadata | null> {
+  try {
+    const accessToken = await getDriveAccessToken();
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true&fields=id,name,mimeType,size,webViewLink`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: "no-store",
+      }
+    );
+    if (!res.ok) return null;
+    return (await res.json()) as DriveFileMetadata;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * عندما يكون الرابط المخزّن هو رابط مجلد المادة في Drive (/drive/folders/{folderId})،
+ * تبحث هذه الدالة داخل المجلد عن الملف الدراسي الفعلي (PDF/DOCX/PPTX/ZIP...) وتتجاهل ملف معلومات المادة.md،
+ * وتعيد بيانات الملف الفعلي ليتم تنزيله مباشرة للطالب دون فتح مجلد Drive!
+ */
+export async function resolveFileFromDriveFolder(
+  folderId: string
+): Promise<DriveFileMetadata | null> {
+  try {
+    const accessToken = await getDriveAccessToken();
+    const q = `'${folderId.replace(/'/g, "")}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder' and mimeType != 'text/markdown' and name != 'معلومات المادة.md'`;
+    const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(
+      q
+    )}&supportsAllDrives=true&includeItemsFromAllDrives=true&fields=files(id,name,mimeType,size,webViewLink)&pageSize=5`;
+
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { files?: DriveFileMetadata[] };
+    return data.files?.[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * يمنح صلاحية القراءة للملف الفردي فقط (وليس المجلد) عند الحاجة لتحويل رابط تنزيل مباشر.
+ */
+export async function ensureFilePublicReader(fileId: string): Promise<void> {
+  try {
+    const accessToken = await getDriveAccessToken();
+    await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/permissions?supportsAllDrives=true`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ role: "reader", type: "anyone" }),
+        cache: "no-store",
+      }
+    );
+  } catch {
+    // تجاهل
+  }
+}
+
+/**
+ * يجلب تدفق بايتات الملف مباشرة من Google Drive API لبثه كملف تنزيل مباشر (Attachment) للطالب
+ * دون أن يغادر نطاق الموقع أو يفتح Google Drive إطلاقًا.
+ */
+export async function fetchDriveFileStream(fileId: string): Promise<Response | null> {
+  try {
+    const accessToken = await getDriveAccessToken();
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: "no-store",
+      }
+    );
+    if (!res.ok || !res.body) return null;
+    return res;
+  } catch {
+    return null;
+  }
+}
+
 export async function deleteDriveFile(fileId: string): Promise<boolean> {
   if (!fileId) return false;
   try {
-    const accessToken = await getAccessToken();
+    const accessToken = await getDriveAccessToken();
     const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
     if (folderId) {
       const metaRes = await fetch(
@@ -150,7 +234,6 @@ export async function deleteDriveFile(fileId: string): Promise<boolean> {
       if (metaRes.ok) {
         const meta = (await metaRes.json()) as DriveFileMetadata;
         if (!meta.parents?.includes(folderId)) {
-          // لا نحذف ملفًا خارج مجلد الموقع
           return false;
         }
       }
@@ -170,9 +253,6 @@ export async function deleteDriveFile(fileId: string): Promise<boolean> {
   }
 }
 
-/**
- * يحذف ملف Drive مرتبطًا برابط إذا كان داخل مجلد الموقع (يُستدعى عند رفض مساهمة أو حذف مادة).
- */
 export async function deleteDriveFileByLink(driveLink: string | null | undefined): Promise<boolean> {
   if (!driveLink) return false;
   const fileId = extractDriveFileId(driveLink);
@@ -180,9 +260,6 @@ export async function deleteDriveFileByLink(driveLink: string | null | undefined
   return deleteDriveFile(fileId);
 }
 
-/**
- * يبدأ جلسة رفع قابلة للاستئناف (Resumable) في Google Drive بعد التحقق من الامتداد والـ MIME والحجم.
- */
 export async function initiateDriveResumableUpload(
   fileName: string,
   mimeType: string,
@@ -194,7 +271,7 @@ export async function initiateDriveResumableUpload(
     throw new Error(fileCheck.error || "نوع أو حجم الملف غير مسموح به");
   }
 
-  const accessToken = await getAccessToken();
+  const accessToken = await getDriveAccessToken();
   const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
   if (!folderId) throw new Error("GOOGLE_DRIVE_FOLDER_ID غير مضبوط في متغيرات البيئة");
 
@@ -232,17 +309,13 @@ export async function initiateDriveResumableUpload(
   return { sessionUrl };
 }
 
-/**
- * بعد أن ينهي المتصفح الرفع المباشر: يتحقق من نوع وحجم الملف الفعلي من Google Drive،
- * ويحذفه فورًا إن كان مخالفًا، ثم يمنح صلاحية القراءة ويعيد الرابط وبيانات الملف.
- */
 export async function finalizeDriveUpload(
   fileId: string,
   fallbackName = "الملف"
 ): Promise<DriveUploadResult> {
   if (!fileId) throw new Error("معرّف الملف مفقود");
 
-  const accessToken = await getAccessToken();
+  const accessToken = await getDriveAccessToken();
   const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
   if (!folderId) throw new Error("GOOGLE_DRIVE_FOLDER_ID غير مضبوط في متغيرات البيئة");
 
@@ -277,22 +350,7 @@ export async function finalizeDriveUpload(
     throw new Error(fileCheck.error || "تم رفض الملف المرفوع لعدم تطابقه مع الأنواع المسموحة");
   }
 
-  const permRes = await fetch(
-    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/permissions?supportsAllDrives=true`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ role: "reader", type: "anyone" }),
-      cache: "no-store",
-    }
-  );
-
-  if (!permRes.ok) {
-    throw new Error("تعذر ضبط صلاحيات عرض الملف في Google Drive");
-  }
+  await ensureFilePublicReader(fileId);
 
   return {
     id: fileId,
@@ -303,12 +361,9 @@ export async function finalizeDriveUpload(
   };
 }
 
-/**
- * يستعلم عن حالة مساحة تخزين حساب Google Drive لتنبيه الإدارة عند الاقتراب من الحد (15GB).
- */
 export async function getDriveStorageQuota(): Promise<DriveQuotaInfo | null> {
   try {
-    const accessToken = await getAccessToken();
+    const accessToken = await getDriveAccessToken();
     const res = await fetch("https://www.googleapis.com/drive/v3/about?fields=storageQuota", {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: "no-store",
@@ -341,3 +396,6 @@ export async function getDriveStorageQuota(): Promise<DriveQuotaInfo | null> {
     return null;
   }
 }
+
+// Re-export helper for folder extraction
+export { extractDriveFileId, extractDriveFolderId };

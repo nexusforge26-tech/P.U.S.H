@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import type { Material } from "@/lib/types";
-import { toDrivePreviewUrl, validateLink } from "@/lib/validation";
+import { extractDriveFileId } from "@/lib/validation";
 
 interface DocViewerProps {
   material: Material;
@@ -12,10 +12,33 @@ interface DocViewerProps {
 export default function DocViewer({ material, className = "" }: DocViewerProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [resolvedFileId, setResolvedFileId] = useState<string | null>(() =>
+    extractDriveFileId(material.drive_link || "")
+  );
 
-  const linkValidation = validateLink(material.drive_link || "");
-  const safeExternalUrl = linkValidation.valid ? linkValidation.url : null;
-  const drivePreviewUrl = toDrivePreviewUrl(material.drive_link);
+  // إذا كان الرابط المخزّن هو مجلد فرعي في Drive، نستعلم من السيرفر عن معرّف الملف الفعلي لعرضه داخل المعاينة المدمجة
+  useEffect(() => {
+    const directId = extractDriveFileId(material.drive_link || "");
+    if (directId) {
+      setResolvedFileId(directId);
+      return;
+    }
+    if (!material.id) return;
+
+    let cancelled = false;
+    fetch(`/api/dl/${encodeURIComponent(material.id)}?mode=meta`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.fileId) {
+          setResolvedFileId(data.fileId);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [material.id, material.drive_link]);
 
   // إغلاق وضع ملء الشاشة عند الضغط على ESC
   useEffect(() => {
@@ -28,37 +51,10 @@ export default function DocViewer({ material, className = "" }: DocViewerProps) 
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isFullscreen]);
 
-  // إذا كان الرابط خارجيًا (غير Google Drive)، نعرض بطاقة واضحة لفتحه بدل iframe محجوب بـ X-Frame-Options
-  if (!drivePreviewUrl) {
-    return (
-      <div
-        className={`flex flex-col items-center justify-center rounded-3xl border border-olive/15 bg-white p-10 text-center shadow-soft ${className}`}
-      >
-        <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-olive/10 text-2xl text-olive-dark">
-          🔗
-        </span>
-        <h3 className="mt-4 font-display text-xl font-bold text-olive-dark">
-          {material.title_ar}
-        </h3>
-        <p className="mt-2 max-w-md text-sm leading-6 text-ink/60">
-          {safeExternalUrl
-            ? "هذا المرجع مستضاف على رابط خارجي ولا يدعم المعاينة المدمجة داخل الصفحة. يمكنك فتحه مباشرة في تبويب جديد."
-            : "لا يتوفر رابط صالح لعرض هذا المستند."}
-        </p>
-        {safeExternalUrl && (
-          <a
-            href={safeExternalUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-olive px-6 py-3 text-sm font-bold text-parchment shadow-card transition hover:bg-olive-dark"
-          >
-            <span>افتح الرابط في نافذة جديدة</span>
-            <span>↗</span>
-          </a>
-        )}
-      </div>
-    );
-  }
+  // رابط المعاينة المدمجة داخل الموقع فقط (إما معاينة ملف Drive أو البث المدمج من السيرفر)
+  const previewSrc = resolvedFileId
+    ? `https://drive.google.com/file/d/${encodeURIComponent(resolvedFileId)}/preview`
+    : `/api/dl/${encodeURIComponent(material.id)}?mode=inline`;
 
   return (
     <div
@@ -68,7 +64,7 @@ export default function DocViewer({ material, className = "" }: DocViewerProps) 
           : `flex flex-col rounded-3xl border border-olive/15 bg-white shadow-soft ${className}`
       }`}
     >
-      {/* شريط أدوات العارض */}
+      {/* شريط أدوات المعاينة داخل الموقع فقط (بدون أي زر فتح خارجي أو فتح في Drive) */}
       <div
         className={`flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 sm:px-6 ${
           isFullscreen
@@ -95,25 +91,12 @@ export default function DocViewer({ material, className = "" }: DocViewerProps) 
             <h3 className="truncate text-sm font-bold sm:text-base">{material.title_ar}</h3>
             <p className="truncate text-[11px] opacity-60">
               {material.course_name ? `${material.course_name} · ` : ""}
-              معاينة Google Drive
+              المعاينة المدمجة داخل الموقع
             </p>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {safeExternalUrl && (
-            <a
-              href={safeExternalUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              title="فتح في نافذة مستقلة"
-              className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-black/10 bg-black/5 px-3 text-xs font-bold transition hover:bg-black/10"
-            >
-              <span>افتح الملف</span>
-              <span>↗</span>
-            </a>
-          )}
-
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setIsFullscreen((prev) => !prev)}
@@ -138,7 +121,7 @@ export default function DocViewer({ material, className = "" }: DocViewerProps) 
         </div>
       </div>
 
-      {/* منطقة العرض */}
+      {/* منطقة عرض المستند داخل الموقع */}
       <div
         className={`relative flex-1 overflow-hidden bg-[#f2efe9] ${
           isFullscreen ? "rounded-xl" : "rounded-b-3xl"
@@ -152,13 +135,20 @@ export default function DocViewer({ material, className = "" }: DocViewerProps) 
           </div>
         )}
 
+        {/* حاجز شفاف أعلى زاوية العارض لمنع زر الفتح الخارجي (Pop-out) الداخلي الخاص بـ Google Drive */}
+        <div
+          aria-hidden="true"
+          className=" absolute right-0 top-0 z-20 h-14 w-16"
+          title={material.title_ar}
+        />
+
         <iframe
           title={material.title_ar}
-          src={drivePreviewUrl}
+          src={previewSrc}
           onLoad={() => setIsLoading(false)}
           className="h-full min-h-[620px] w-full border-0"
           allow="autoplay; fullscreen"
-          sandbox="allow-scripts allow-same-origin allow-popups"
+          sandbox="allow-scripts allow-same-origin"
         />
       </div>
     </div>

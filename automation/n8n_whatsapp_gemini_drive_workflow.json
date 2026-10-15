@@ -1,0 +1,76 @@
+{
+  "name": "PUSH — أتمتة واتساب مع Gemini ومستودع Google Drive (تنزيل مباشر بدون فتح المجلد)",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "messages"
+        ]
+      },
+      "id": "whatsapp-trigger",
+      "name": "WhatsApp Trigger (استقبال رسالة الطالب)",
+      "type": "n8n-nodes-base.whatsAppTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR-DOMAIN.vercel.app/api/whatsapp/webhook",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"message\": \"{{ $json.messages[0].text.body }}\"\n}"
+      },
+      "id": "push-gemini-search",
+      "name": "البحث في مستودع Drive مع Gemini وتوليد رابط التنزيل المباشر",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        540,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "recipientPhoneNumber": "={{ $('WhatsApp Trigger (استقبال رسالة الطالب)').item.json.messages[0].from }}",
+        "textBody": "={{ $json.reply }}"
+      },
+      "id": "whatsapp-send",
+      "name": "إرسال النتيجة ورابط التنزيل المباشر للطالب",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        860,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "WhatsApp Trigger (استقبال رسالة الطالب)": {
+      "main": [
+        [
+          {
+            "node": "البحث في مستودع Drive مع Gemini وتوليد رابط التنزيل المباشر",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "البحث في مستودع Drive مع Gemini وتوليد رابط التنزيل المباشر": {
+      "main": [
+        [
+          {
+            "node": "إرسال النتيجة ورابط التنزيل المباشر للطالب",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
