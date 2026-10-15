@@ -178,13 +178,14 @@ export async function POST(req: NextRequest) {
     mime_type: typeof mime_type === "string" && mime_type ? mime_type : null,
   };
 
-  let { data, error } = await supabaseAdmin
+  const first = await supabaseAdmin
     .from("materials")
     .insert(extendedPayload)
     .select(select)
     .single();
+  let data: unknown = first.data;
 
-  if (error) {
+  if (first.error) {
     const retry = await supabaseAdmin
       .from("materials")
       .insert(basePayload)
@@ -246,14 +247,15 @@ export async function PATCH(req: NextRequest) {
   const extendedPayload =
     is_verified !== undefined ? { ...basePayload, is_verified: Boolean(is_verified) } : basePayload;
 
-  let { data, error } = await supabaseAdmin
+  const first = await supabaseAdmin
     .from("materials")
     .update(extendedPayload)
     .eq("id", id)
     .select(select)
     .single();
+  let data: unknown = first.data;
 
-  if (error) {
+  if (first.error) {
     const retry = await supabaseAdmin
       .from("materials")
       .update(basePayload)
