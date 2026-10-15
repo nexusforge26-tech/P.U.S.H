@@ -20,6 +20,8 @@ const TRUSTED_LINK_HOSTS = new Set([
   "raw.githubusercontent.com",
   "archive.org",
   "www.archive.org",
+  "antiexam.com",
+  "www.antiexam.com",
 ]);
 
 export interface LinkValidationResult {
@@ -27,15 +29,23 @@ export interface LinkValidationResult {
   url: string | null;
   isDrive: boolean;
   driveFileId: string | null;
+  driveFolderId: string | null;
   error?: string;
 }
 
+/**
+ * يستخرج معرّف ملف Google Drive من روابط الملفات المباشرة.
+ */
 export function extractDriveFileId(rawLink: string): string | null {
   if (typeof rawLink !== "string" || !rawLink.trim()) return null;
   try {
     const url = new URL(rawLink.trim());
     const host = url.hostname.toLowerCase();
     if (host !== "drive.google.com" && host !== "docs.google.com") {
+      return null;
+    }
+
+    if (url.pathname.includes("/folders/") || url.pathname.includes("/folderview")) {
       return null;
     }
 
@@ -53,6 +63,30 @@ export function extractDriveFileId(rawLink: string): string | null {
   }
 }
 
+/**
+ * يستخرج معرّف مجلد Google Drive من روابط المجلدات (/drive/folders/{id} أو /folderview?id={id}).
+ */
+export function extractDriveFolderId(rawLink: string): string | null {
+  if (typeof rawLink !== "string" || !rawLink.trim()) return null;
+  try {
+    const url = new URL(rawLink.trim());
+    const host = url.hostname.toLowerCase();
+    if (host !== "drive.google.com") return null;
+
+    const fMatch = url.pathname.match(/\/drive\/(?:u\/\d+\/)?folders\/([A-Za-z0-9_-]{10,})/);
+    if (fMatch?.[1]) return fMatch[1];
+
+    if (url.pathname.includes("/folderview")) {
+      const idParam = url.searchParams.get("id");
+      if (idParam && /^[A-Za-z0-9_-]{10,}$/.test(idParam)) return idParam;
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function validateLink(
   raw: unknown,
   options: { driveOnly?: boolean; allowTrustedExternal?: boolean } = {}
@@ -60,12 +94,12 @@ export function validateLink(
   const { driveOnly = false, allowTrustedExternal = true } = options;
 
   if (typeof raw !== "string" || !raw.trim()) {
-    return { valid: false, url: null, isDrive: false, driveFileId: null, error: "الرابط مطلوب" };
+    return { valid: false, url: null, isDrive: false, driveFileId: null, driveFolderId: null, error: "الرابط مطلوب" };
   }
 
   const trimmed = raw.trim();
   if (trimmed.length > 2048) {
-    return { valid: false, url: null, isDrive: false, driveFileId: null, error: "الرابط طويل جدًا" };
+    return { valid: false, url: null, isDrive: false, driveFileId: null, driveFolderId: null, error: "الرابط طويل جدًا" };
   }
 
   if (/^(javascript|data|vbscript|file|blob|about):/i.test(trimmed)) {
@@ -74,6 +108,7 @@ export function validateLink(
       url: null,
       isDrive: false,
       driveFileId: null,
+      driveFolderId: null,
       error: "نوع الرابط غير مسموح به لأسباب أمنية",
     };
   }
@@ -87,6 +122,7 @@ export function validateLink(
       url: null,
       isDrive: false,
       driveFileId: null,
+      driveFolderId: null,
       error: "صيغة الرابط غير صالحة (يجب أن يبدأ بـ https://)",
     };
   }
@@ -97,6 +133,7 @@ export function validateLink(
       url: null,
       isDrive: false,
       driveFileId: null,
+      driveFolderId: null,
       error: "يُسمح فقط بالروابط الآمنة التي تبدأ بـ https://",
     };
   }
@@ -107,6 +144,7 @@ export function validateLink(
       url: null,
       isDrive: false,
       driveFileId: null,
+      driveFolderId: null,
       error: "الرابط يحتوي على بيانات اعتماد غير مسموحة",
     };
   }
@@ -122,12 +160,14 @@ export function validateLink(
       url: null,
       isDrive: false,
       driveFileId: null,
+      driveFolderId: null,
       error: "لا يُسمح بالروابط المحلية",
     };
   }
 
   const isDrive = host === "drive.google.com" || host === "docs.google.com";
   const driveFileId = isDrive ? extractDriveFileId(parsed.toString()) : null;
+  const driveFolderId = isDrive ? extractDriveFolderId(parsed.toString()) : null;
 
   if (driveOnly && !isDrive) {
     return {
@@ -135,6 +175,7 @@ export function validateLink(
       url: null,
       isDrive: false,
       driveFileId: null,
+      driveFolderId: null,
       error: "يُسمح فقط بروابط Google Drive",
     };
   }
@@ -146,6 +187,7 @@ export function validateLink(
       url: null,
       isDrive: false,
       driveFileId: null,
+      driveFolderId: null,
       error:
         "النطاق غير مدعوم. يُرجى رفع الملف مباشرة أو استخدام رابط من Google Drive أو OneDrive أو Dropbox أو موقع جامعي (.edu.ps)",
     };
@@ -156,36 +198,61 @@ export function validateLink(
     url: parsed.toString(),
     isDrive,
     driveFileId,
+    driveFolderId,
   };
 }
 
+/**
+ * يحوّل رابط Google Drive (ملف أو مجلد مادة) إلى رابط معاينة آمن للـ iframe.
+ * - للملفات: https://drive.google.com/file/d/{fileId}/preview
+ * - للمجلدات: https://drive.google.com/embeddedfolderview?id={folderId}#list
+ */
 export function toDrivePreviewUrl(rawLink: string | null | undefined): string | null {
   if (!rawLink) return null;
   const check = validateLink(rawLink);
-  if (!check.valid || !check.isDrive || !check.driveFileId) return null;
-  return `https://drive.google.com/file/d/${encodeURIComponent(check.driveFileId)}/preview`;
+  if (!check.valid || !check.isDrive) return null;
+  if (check.driveFileId) {
+    return `https://drive.google.com/file/d/${encodeURIComponent(check.driveFileId)}/preview`;
+  }
+  if (check.driveFolderId) {
+    return `https://drive.google.com/embeddedfolderview?id=${encodeURIComponent(check.driveFolderId)}#list`;
+  }
+  return null;
 }
 
 export function toSafeDownloadUrl(rawLink: string | null | undefined): {
   downloadUrl: string | null;
   viewUrl: string | null;
   isDrive: boolean;
+  isFolder: boolean;
 } {
-  if (!rawLink) return { downloadUrl: null, viewUrl: null, isDrive: false };
+  if (!rawLink) return { downloadUrl: null, viewUrl: null, isDrive: false, isFolder: false };
   const check = validateLink(rawLink);
-  if (!check.valid || !check.url) return { downloadUrl: null, viewUrl: null, isDrive: false };
+  if (!check.valid || !check.url) return { downloadUrl: null, viewUrl: null, isDrive: false, isFolder: false };
   if (check.isDrive && check.driveFileId) {
     const id = encodeURIComponent(check.driveFileId);
     return {
       downloadUrl: `https://drive.google.com/uc?export=download&id=${id}`,
       viewUrl: `https://drive.google.com/file/d/${id}/view`,
       isDrive: true,
+      isFolder: false,
+    };
+  }
+  if (check.isDrive && check.driveFolderId) {
+    const id = encodeURIComponent(check.driveFolderId);
+    const folderUrl = `https://drive.google.com/drive/folders/${id}`;
+    return {
+      downloadUrl: folderUrl,
+      viewUrl: folderUrl,
+      isDrive: true,
+      isFolder: true,
     };
   }
   return {
     downloadUrl: check.url,
     viewUrl: check.url,
     isDrive: false,
+    isFolder: false,
   };
 }
 
