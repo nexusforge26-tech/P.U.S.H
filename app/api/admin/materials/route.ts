@@ -79,13 +79,17 @@ export async function GET(req: NextRequest) {
     return query;
   };
 
-  function scoped<T extends { in: (col: string, vals: string[]) => T; eq: (col: string, val: string) => T }>(
-    builder: T
-  ): T {
+  function scoped<B>(builder: B): B {
     if (!courseIds) return builder;
-    return courseIds.length
-      ? builder.in("course_id", courseIds)
-      : builder.eq("course_id", "00000000-0000-0000-0000-000000000000");
+    const b = builder as unknown as {
+      in: (col: string, vals: string[]) => unknown;
+      eq: (col: string, val: string) => unknown;
+    };
+    return (
+      courseIds.length
+        ? b.in("course_id", courseIds)
+        : b.eq("course_id", "00000000-0000-0000-0000-000000000000")
+    ) as B;
   }
 
   let [materialsResult, totalResult, featuredResult, downloadsResult, universitiesResult, coursesResult] =
