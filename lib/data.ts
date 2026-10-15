@@ -354,8 +354,9 @@ export async function getMaterialById(id: string): Promise<Material | null> {
     throw new Error("لم يتم ضبط اتصال قاعدة البيانات (Supabase)");
   }
 
-  let { data, error } = await supabase.from("materials").select(MATERIAL_SELECT).eq("id", id).maybeSingle();
-  if (error) {
+  const primary = await supabase.from("materials").select(MATERIAL_SELECT).eq("id", id).maybeSingle();
+  let data: unknown = primary.data;
+  if (primary.error) {
     const fallback = await supabase
       .from("materials")
       .select(MATERIAL_SELECT_FALLBACK)
@@ -364,7 +365,7 @@ export async function getMaterialById(id: string): Promise<Material | null> {
     if (fallback.error) throw fallback.error;
     data = fallback.data;
   }
-  return data ? flattenMaterial(data as unknown as Record<string, unknown>) : null;
+  return data ? flattenMaterial(data as Record<string, unknown>) : null;
 }
 
 export async function incrementDownloads(id: string): Promise<void> {
