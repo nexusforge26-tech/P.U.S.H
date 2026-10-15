@@ -79,13 +79,17 @@ export async function GET(req: NextRequest) {
     return query;
   };
 
-  function scoped<T extends { in: (col: string, vals: string[]) => T; eq: (col: string, val: string) => T }>(
-    builder: T
-  ): T {
+  function scoped<T>(builder: T): T {
     if (!courseIds) return builder;
-    return courseIds.length
-      ? builder.in("course_id", courseIds)
-      : builder.eq("course_id", "00000000-0000-0000-0000-000000000000");
+    const b = builder as unknown as {
+      in: (col: string, vals: string[]) => unknown;
+      eq: (col: string, val: string) => unknown;
+    };
+    return (
+      courseIds.length
+        ? b.in("course_id", courseIds)
+        : b.eq("course_id", "00000000-0000-0000-0000-000000000000")
+    ) as T;
   }
 
   let [materialsResult, totalResult, featuredResult, downloadsResult, universitiesResult, coursesResult] =
@@ -187,7 +191,7 @@ export async function POST(req: NextRequest) {
       .select(selectFallback)
       .single();
     if (retry.error) return NextResponse.json({ error: retry.error.message }, { status: 500 });
-    data = retry.data;
+    data = retry.data as unknown as typeof data;
   }
 
   const row = data as unknown as Record<string, unknown>;
@@ -257,7 +261,7 @@ export async function PATCH(req: NextRequest) {
       .select(selectFallback)
       .single();
     if (retry.error) return NextResponse.json({ error: retry.error.message }, { status: 500 });
-    data = retry.data;
+    data = retry.data as unknown as typeof data;
   }
 
   const row = data as unknown as Record<string, unknown>;
