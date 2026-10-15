@@ -15,9 +15,19 @@ export async function POST(req: NextRequest) {
     if (!fileId) return NextResponse.json({ error: "معرّف الملف مفقود" }, { status: 400 });
 
     const result = await finalizeDriveUpload(fileId, fileName);
-    return NextResponse.json({ drive_link: result.link, file_name: result.name, file_id: result.id }, { status: 200 });
-  } catch (err: any) {
+    return NextResponse.json(
+      {
+        drive_link: result.link,
+        file_name: result.name,
+        file_id: result.id,
+        file_size: result.size,
+        mime_type: result.mimeType,
+      },
+      { status: 200 }
+    );
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "تعذر إنهاء رفع الملف إلى Google Drive";
     console.error("Drive upload finalization error:", err);
-    return NextResponse.json({ error: err?.message || "تعذر إنهاء رفع الملف إلى Google Drive" }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }

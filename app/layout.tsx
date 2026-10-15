@@ -3,6 +3,7 @@ import { Amiri, Tajawal } from "next/font/google";
 import "./globals.css";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import { AuthProvider } from "@/components/AuthProvider";
 
 const amiri = Amiri({
   subsets: ["arabic"],
@@ -19,18 +20,37 @@ const tajawal = Tajawal({
 });
 
 export const metadata: Metadata = {
-  title: "PUSH — Palestine University Students Hub",
+  title: {
+    default: "PUSH — Palestine University Students Hub",
+    template: "%s | PUSH",
+  },
   description:
     "منصة طلابية تطوعية تجمع الملخصات والامتحانات السابقة وفيديوهات الشرح لطلاب الجامعات الفلسطينية في مكان واحد.",
+  openGraph: {
+    title: "PUSH — مركز المعرفة الطلابية للجامعات الفلسطينية",
+    description:
+      "ملخصات، امتحانات سابقة، ملفات مرجعية، وفيديوهات شرح مرتبة حسب الجامعة والمساق.",
+    type: "website",
+    locale: "ar_PS",
+    siteName: "PUSH",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "PUSH — Palestine University Students Hub",
+    description:
+      "منصة طلابية تطوعية تجمع الملخصات والامتحانات السابقة وفيديوهات الشرح لطلاب الجامعات الفلسطينية.",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ar" dir="rtl" className={`${amiri.variable} ${tajawal.variable}`}>
       <body className="font-body">
-        <Header />
-        <main className="min-h-[70vh]">{children}</main>
-        <Footer />
+        <AuthProvider>
+          <Header />
+          <main className="min-h-[70vh]">{children}</main>
+          <Footer />
+        </AuthProvider>
       </body>
     </html>
   );

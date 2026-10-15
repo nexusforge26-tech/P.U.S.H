@@ -1,16 +1,45 @@
--- PUSH — schema + authentication/roles/submissions
+-- PUSH — schema + authentication/roles/submissions/notifications/reports
 -- الهيكل الحالي: جامعة ← مساق ← منشورات (لا توجد كليات).
--- هذا الملف للتثبيت على قاعدة جديدة فقط.
--- إذا كانت قاعدتك قائمة وتحتوي على جدول faculties، نفّذ بدلًا منه:
---   supabase/migrations/2026-10-13-remove-faculties.sql
+-- هذا الملف قابل لإعادة التنفيذ بأمان (idempotent).
 create extension if not exists "pgcrypto";
 create extension if not exists pg_trgm;
+
+-- دالة تطبيع النص العربي للبحث الدقيق (توحيد الهمزات، التاء المربوطة، الألف المقصورة، وإزالة التشكيل)
+create or replace function public.normalize_arabic(input text)
+returns text
+language sql
+immutable
+as $$
+  select lower(
+    trim(
+      regexp_replace(
+        translate(
+          regexp_replace(coalesce(input, ''), '[\u064B-\u065F\u0670\u0640]', '', 'g'),
+          'أإآٱىيةؤئ',
+          'ااااييهوي'
+        ),
+        '\s+',
+        ' ',
+        'g'
+      )
+    )
+  );
+$$;
+
+-- جدول إعدادات التطبيق (بدل تثبيت بريد المالك في الكود المصدري)
+create table if not exists app_settings (
+  key text primary key,
+  value text not null,
+  updated_at timestamptz not null default now()
+);
+alter table app_settings enable row level security;
 
 create table if not exists universities (
   id uuid primary key default gen_random_uuid(),
   name_ar text not null,
   created_at timestamptz not null default now()
 );
+
 create table if not exists courses (
   id uuid primary key default gen_random_uuid(),
   university_id uuid not null references universities(id) on delete cascade,
@@ -18,6 +47,7 @@ create table if not exists courses (
   code text,
   created_at timestamptz not null default now()
 );
+
 create table if not exists materials (
   id uuid primary key default gen_random_uuid(),
   course_id uuid not null references courses(id) on delete cascade,
@@ -29,17 +59,66 @@ create table if not exists materials (
   drive_link text,
   youtube_id text,
   is_featured boolean not null default false,
+  is_verified boolean not null default false,
   downloads_count integer not null default 0,
+  helpful_count integer not null default 0,
+  file_size bigint,
+  mime_type text,
+  page_count integer,
+  search_text text,
+  created_by uuid references auth.users(id) on delete set null,
   created_at timestamptz not null default now(),
   constraint material_has_source check ((type = 'video' and youtube_id is not null) or (type <> 'video' and drive_link is not null))
 );
+
+alter table materials add column if not exists is_verified boolean not null default false;
+alter table materials add column if not exists helpful_count integer not null default 0;
+alter table materials add column if not exists file_size bigint;
+alter table materials add column if not exists mime_type text;
+alter table materials add column if not exists page_count integer;
+alter table materials add column if not exists search_text text;
+alter table materials add column if not exists created_by uuid references auth.users(id) on delete set null;
+
+-- تحديث تلقائي لعمود search_text المطبّع عند إدراج أو تعديل مادة
+create or replace function public.materials_update_search_text()
+returns trigger
+language plpgsql
+as $$
+declare
+  c_name text;
+  c_code text;
+begin
+  select name_ar, code into c_name, c_code from public.courses where id = new.course_id;
+  new.search_text := public.normalize_arabic(
+    coalesce(new.title_ar, '') || ' ' ||
+    coalesce(new.description_ar, '') || ' ' ||
+    coalesce(c_name, '') || ' ' ||
+    coalesce(c_code, '')
+  );
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_materials_search_text on materials;
+create trigger trg_materials_search_text
+before insert or update on materials
+for each row execute function public.materials_update_search_text();
+
+-- الفهارس الأساسية وفهارس البحث السريع (Trigram & Sorting)
 create index if not exists idx_courses_university on courses(university_id);
+create index if not exists idx_courses_name_trgm on courses using gin (name_ar gin_trgm_ops);
+create index if not exists idx_courses_code_trgm on courses using gin (code gin_trgm_ops);
+
 create index if not exists idx_materials_course on materials(course_id);
 create index if not exists idx_materials_type on materials(type);
 create index if not exists idx_materials_featured on materials(is_featured);
+create index if not exists idx_materials_created_at on materials(created_at desc);
+create index if not exists idx_materials_downloads on materials(downloads_count desc);
+create index if not exists idx_materials_created_by on materials(created_by);
 create index if not exists idx_materials_title_trgm on materials using gin (title_ar gin_trgm_ops);
+create index if not exists idx_materials_search_trgm on materials using gin (search_text gin_trgm_ops);
 
--- Accounts and roles. New accounts are regular users by default.
+-- الحسابات والأدوار
 create table if not exists profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text,
@@ -57,62 +136,86 @@ returns trigger
 language plpgsql
 security definer set search_path = public
 as $$
+declare
+  configured_owner text;
 begin
+  select value into configured_owner from public.app_settings where key = 'owner_email' limit 1;
   insert into public.profiles(id,email,full_name,avatar_url,role)
   values (
     new.id,
     lower(new.email),
     coalesce(new.raw_user_meta_data->>'full_name', new.raw_user_meta_data->>'name'),
     new.raw_user_meta_data->>'avatar_url',
-    case when lower(new.email) = lower('ydha957@gmail.com') then 'owner' else 'user' end
+    case when configured_owner is not null and lower(new.email) = lower(configured_owner) then 'owner' else 'user' end
   )
-  on conflict (id) do update set email=excluded.email, full_name=coalesce(excluded.full_name,profiles.full_name), avatar_url=coalesce(excluded.avatar_url,profiles.avatar_url);
+  on conflict (id) do update set
+    email = excluded.email,
+    full_name = coalesce(excluded.full_name, profiles.full_name),
+    avatar_url = coalesce(excluded.avatar_url, profiles.avatar_url);
   return new;
 end;
 $$;
+
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created after insert on auth.users for each row execute function public.handle_new_user();
 
--- Backfill profiles for accounts that already exist. The owner email is always owner.
-insert into public.profiles(id,email,full_name,avatar_url,role)
-select id, lower(email), coalesce(raw_user_meta_data->>'full_name', raw_user_meta_data->>'name'), raw_user_meta_data->>'avatar_url',
-       case when lower(email)=lower('ydha957@gmail.com') then 'owner' else 'user' end
-from auth.users
-on conflict (id) do update set email=excluded.email, role=case when lower(excluded.email)=lower('ydha957@gmail.com') then 'owner' else profiles.role end;
-
+-- جدول المساهمات (مع الحفاظ على أرشيف المساهمات عند حذف المستخدم عبر on delete set null)
 create table if not exists submissions (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users(id) on delete cascade,
-  course_id uuid not null references courses(id) on delete cascade,
+  user_id uuid references profiles(id) on delete set null,
+  submitter_name text,
+  submitter_email text,
+  kind text not null default 'material' check (kind in ('material','course','material_edit')),
+  course_id uuid references courses(id) on delete cascade,
+  target_material_id uuid references materials(id) on delete cascade,
   title_ar text not null,
   description_ar text,
-  type text not null check (type in ('exam','summary','file','video')),
+  type text check (type in ('exam','summary','file','video')),
   academic_year text,
   semester text,
   drive_link text,
   youtube_id text,
+  file_size bigint,
+  mime_type text,
+  page_count integer,
+  suggested_course_name text,
+  suggested_course_code text,
+  suggested_university_id uuid references universities(id) on delete cascade,
   status text not null default 'pending' check (status in ('pending','approved','rejected')),
   admin_note text,
   reviewed_by uuid references auth.users(id) on delete set null,
   reviewed_at timestamptz,
   created_at timestamptz not null default now(),
-  constraint submission_has_source check ((type='video' and youtube_id is not null) or (type<>'video' and drive_link is not null))
+  constraint submission_course_or_material_check check (
+    (kind = 'material' and course_id is not null and ((type = 'video' and youtube_id is not null) or (type <> 'video' and drive_link is not null))) or
+    (kind = 'material_edit' and target_material_id is not null and course_id is not null) or
+    (kind = 'course' and suggested_course_name is not null and suggested_course_code is not null and suggested_university_id is not null)
+  )
 );
+
+alter table submissions alter column user_id drop not null;
+alter table submissions alter column course_id drop not null;
+alter table submissions alter column type drop not null;
+alter table submissions add column if not exists submitter_name text;
+alter table submissions add column if not exists submitter_email text;
+alter table submissions add column if not exists kind text not null default 'material';
+alter table submissions add column if not exists target_material_id uuid references materials(id) on delete cascade;
+alter table submissions add column if not exists file_size bigint;
+alter table submissions add column if not exists mime_type text;
+alter table submissions add column if not exists page_count integer;
+alter table submissions add column if not exists suggested_course_name text;
+alter table submissions add column if not exists suggested_course_code text;
+alter table submissions add column if not exists suggested_university_id uuid references universities(id) on delete cascade;
+
+alter table submissions drop constraint if exists submissions_user_id_fkey;
+alter table submissions add constraint submissions_user_id_fkey
+  foreign key (user_id) references profiles(id) on delete set null;
+
 create index if not exists idx_submissions_user on submissions(user_id);
 create index if not exists idx_submissions_status on submissions(status);
 create index if not exists idx_submissions_created on submissions(created_at desc);
 
--- api/admin/submissions embeds the submitter's profile as
--- `profiles:user_id(email,full_name)`. PostgREST can only auto-embed two
--- tables that have a direct foreign key between them — submissions.user_id
--- referencing auth.users(id) is not enough, since profiles.id references
--- auth.users(id) separately, with no FK from submissions to profiles itself.
--- Without this constraint the admin "المساهمات المعلقة" query fails and no
--- pending submission ever reaches the dashboard. Safe to re-run.
-alter table submissions drop constraint if exists submissions_user_id_fkey;
-alter table submissions add constraint submissions_user_id_fkey
-  foreign key (user_id) references profiles(id) on delete cascade;
-
+-- تفعيل RLS (حذف سياسات الإدراج المباشر عبر مفتاح anon لمنع تجاوز تحققات الـ API)
 alter table universities enable row level security;
 alter table courses enable row level security;
 alter table materials enable row level security;
@@ -131,37 +234,17 @@ create policy "users read own profile" on profiles for select to authenticated u
 
 drop policy if exists "users create own submissions" on submissions;
 drop policy if exists "users read own submissions" on submissions;
-create policy "users create own submissions" on submissions for insert to authenticated with check (user_id = auth.uid());
 create policy "users read own submissions" on submissions for select to authenticated using (user_id = auth.uid());
 
+-- دالة زيادة عداد التحميلات محصورة بـ service_role فقط لمنع التضخيم الوهمي عبر مفتاح anon
 create or replace function increment_downloads(material_id uuid)
 returns void language sql security definer set search_path = public as $$
   update materials set downloads_count = downloads_count + 1 where id = material_id;
 $$;
-grant execute on function increment_downloads(uuid) to anon, authenticated;
+revoke execute on function increment_downloads(uuid) from public, anon, authenticated;
+grant execute on function increment_downloads(uuid) to service_role;
 
--- ===========================================================================
--- تحديث: تصفح متسلسل، اقتراح مساقات، تعديل/حذف خلال 6 ساعات، وسجل المنشورات.
--- الملف كامل قابل لإعادة التنفيذ بأمان (idempotent) — نفّذه كاملاً من جديد.
--- ===========================================================================
-
--- من نشر كل مادة (يُستخدم للسماح لصاحب المادة بتعديلها/حذفها خلال 6 ساعات).
-alter table materials add column if not exists created_by uuid references auth.users(id) on delete set null;
-create index if not exists idx_materials_created_by on materials(created_by);
-
--- السماح للمساهمات بأن تكون "مساق جديد مقترح" وليس فقط "مادة لمساق موجود".
-alter table submissions alter column course_id drop not null;
-alter table submissions add column if not exists kind text not null default 'material' check (kind in ('material','course'));
-alter table submissions add column if not exists suggested_course_name text;
-alter table submissions add column if not exists suggested_course_code text;
-alter table submissions add column if not exists suggested_university_id uuid references universities(id) on delete cascade;
-alter table submissions drop constraint if exists submission_course_or_material_check;
-alter table submissions add constraint submission_course_or_material_check check (
-  (kind = 'material' and course_id is not null) or
-  (kind = 'course' and suggested_course_name is not null and suggested_course_code is not null and suggested_university_id is not null)
-);
-
--- سجل المنشورات: من أضاف/نشر ماذا ومتى. يظهر فقط للمسؤول والمالك.
+-- سجل النشاط
 create table if not exists activity_log (
   id uuid primary key default gen_random_uuid(),
   actor_id uuid references auth.users(id) on delete set null,
@@ -176,20 +259,14 @@ create table if not exists activity_log (
 );
 create index if not exists idx_activity_log_created on activity_log(created_at desc);
 create index if not exists idx_activity_log_actor on activity_log(actor_id);
+create index if not exists idx_activity_log_action on activity_log(action);
 alter table activity_log enable row level security;
 drop policy if exists "staff read activity log" on activity_log;
 create policy "staff read activity log" on activity_log for select to authenticated using (
   exists (select 1 from profiles p where p.id = auth.uid() and p.role in ('admin','owner'))
 );
--- لا حاجة لسياسة إدخال: كل الإدراجات تتم عبر مفتاح الخدمة (service role) من الـ API فقط.
 
--- ===========================================================================
--- تحديث: معلومات الدكاترة — نشر بموافقة المسؤول، وتعديل بيانات دكتور موجود
--- (بموافقة المسؤول أيضًا) مع عرض الفرق بين القديم والمقترح. الملف كامل
--- قابل لإعادة التنفيذ بأمان (idempotent) — نفّذه كاملاً من جديد.
--- ===========================================================================
-
--- بيانات الدكاترة المعتمدة (تظهر للجميع بعد الموافقة).
+-- الدكاترة ومساهمات الدكاترة
 create table if not exists doctors (
   id uuid primary key default gen_random_uuid(),
   full_name text not null,
@@ -204,14 +281,26 @@ create table if not exists doctors (
 );
 create index if not exists idx_doctors_university on doctors(university_id);
 create index if not exists idx_doctors_name_trgm on doctors using gin (full_name gin_trgm_ops);
+create index if not exists idx_doctors_courses_gin on doctors using gin (courses);
+create unique index if not exists idx_doctors_email_unique on doctors (lower(email));
 
--- مساهمات معلومات الدكاترة: إما "دكتور جديد" (kind='new') أو "تعديل دكتور
--- موجود" (kind='edit', ويشير target_doctor_id إلى السجل المطلوب تعديله حتى
--- تستطيع لوحة الإدارة عرض القديم بجانب المقترح والفرق بينهما). كلا النوعين
--- يبقى معلّقًا حتى موافقة المسؤول، تمامًا كمساهمات المواد.
+-- جدول ربط الدكاترة بالمساقات الفعلي (Many-to-Many)
+create table if not exists doctor_courses (
+  doctor_id uuid not null references doctors(id) on delete cascade,
+  course_id uuid not null references courses(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (doctor_id, course_id)
+);
+create index if not exists idx_doctor_courses_course on doctor_courses(course_id);
+alter table doctor_courses enable row level security;
+drop policy if exists "public read doctor courses" on doctor_courses;
+create policy "public read doctor courses" on doctor_courses for select using (true);
+
 create table if not exists doctor_submissions (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users(id) on delete cascade,
+  user_id uuid references profiles(id) on delete set null,
+  submitter_name text,
+  submitter_email text,
   kind text not null default 'new' check (kind in ('new','edit')),
   target_doctor_id uuid references doctors(id) on delete set null,
   full_name text not null,
@@ -225,21 +314,20 @@ create table if not exists doctor_submissions (
   reviewed_by uuid references auth.users(id) on delete set null,
   reviewed_at timestamptz,
   created_at timestamptz not null default now(),
-  -- يُشترط وجود target_doctor_id فقط طالما الطلب لا يزال معلّقًا؛ إذا حُذف
-  -- الدكتور لاحقًا (target_doctor_id يصبح null تلقائيًا) لا ينبغي أن يفشل ذلك
-  -- على سجلات المساهمات القديمة المُراجَعة فعلاً.
   constraint doctor_submission_edit_needs_target check (status <> 'pending' or kind = 'new' or target_doctor_id is not null)
 );
+
+alter table doctor_submissions alter column user_id drop not null;
+alter table doctor_submissions add column if not exists submitter_name text;
+alter table doctor_submissions add column if not exists submitter_email text;
+alter table doctor_submissions drop constraint if exists doctor_submissions_user_id_fkey;
+alter table doctor_submissions add constraint doctor_submissions_user_id_fkey
+  foreign key (user_id) references profiles(id) on delete set null;
+
 create index if not exists idx_doctor_submissions_user on doctor_submissions(user_id);
 create index if not exists idx_doctor_submissions_status on doctor_submissions(status);
 create index if not exists idx_doctor_submissions_target on doctor_submissions(target_doctor_id);
 create index if not exists idx_doctor_submissions_created on doctor_submissions(created_at desc);
-
--- نفس سبب قيد المفتاح الأجنبي الموجود أعلاه على submissions: للسماح بتضمين
--- profiles:user_id مباشرة في استعلام لوحة الإدارة.
-alter table doctor_submissions drop constraint if exists doctor_submissions_user_id_fkey;
-alter table doctor_submissions add constraint doctor_submissions_user_id_fkey
-  foreign key (user_id) references profiles(id) on delete cascade;
 
 alter table doctors enable row level security;
 alter table doctor_submissions enable row level security;
@@ -249,7 +337,58 @@ create policy "public read doctors" on doctors for select using (true);
 
 drop policy if exists "users create own doctor submissions" on doctor_submissions;
 drop policy if exists "users read own doctor submissions" on doctor_submissions;
-create policy "users create own doctor submissions" on doctor_submissions for insert to authenticated with check (user_id = auth.uid());
 create policy "users read own doctor submissions" on doctor_submissions for select to authenticated using (user_id = auth.uid());
--- لا حاجة لسياسة إدخال/تعديل على doctors نفسها: يتم إنشاؤها وتحديثها فقط
--- عبر مفتاح الخدمة (service role) عند موافقة المسؤول على مساهمة.
+
+-- جدول الإشعارات للمساهمين
+create table if not exists notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  title text not null,
+  message text not null,
+  link text,
+  is_read boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_notifications_user_unread on notifications(user_id, is_read, created_at desc);
+alter table notifications enable row level security;
+drop policy if exists "users read own notifications" on notifications;
+create policy "users read own notifications" on notifications for select to authenticated using (user_id = auth.uid());
+
+-- جدول البلاغات عن المواد (روابط معطلة، ملفات خاطئة، حقوق نشر)
+create table if not exists material_reports (
+  id uuid primary key default gen_random_uuid(),
+  material_id uuid not null references materials(id) on delete cascade,
+  user_id uuid references auth.users(id) on delete set null,
+  reporter_email text,
+  reason text not null check (reason in ('broken_link','wrong_file','copyright','inappropriate','other')),
+  details text,
+  status text not null default 'open' check (status in ('open','resolved','dismissed')),
+  resolved_by uuid references auth.users(id) on delete set null,
+  resolved_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_material_reports_status on material_reports(status, created_at desc);
+create index if not exists idx_material_reports_material on material_reports(material_id);
+alter table material_reports enable row level security;
+
+-- جدول تقييم المواد (مفيد 👍)
+create table if not exists material_votes (
+  material_id uuid not null references materials(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (material_id, user_id)
+);
+alter table material_votes enable row level security;
+drop policy if exists "users read own votes" on material_votes;
+create policy "users read own votes" on material_votes for select to authenticated using (user_id = auth.uid());
+
+-- جدول المساقات المفضلة («مساقاتي»)
+create table if not exists favorite_courses (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  course_id uuid not null references courses(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (user_id, course_id)
+);
+alter table favorite_courses enable row level security;
+drop policy if exists "users manage own favorite courses" on favorite_courses;
+create policy "users manage own favorite courses" on favorite_courses for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());

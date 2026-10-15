@@ -1,17 +1,34 @@
 "use client";
-import { useRef, useState } from "react";
-import { MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL, formatBytes } from "@/lib/uploadLimits";
 
-const input = "w-full rounded-2xl border border-olive/10 bg-[#fbfaf7] px-4 py-3 text-sm text-ink outline-none file:ml-3 file:rounded-xl file:border-0 file:bg-olive file:px-4 file:py-2 file:font-black file:text-parchment focus:border-gold focus:bg-white focus:ring-4 focus:ring-gold/10";
+import { useRef, useState } from "react";
+import {
+  ALLOWED_UPLOAD_EXTENSIONS,
+  MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_LABEL,
+  formatBytes,
+  validateUploadFileMeta,
+} from "@/lib/uploadLimits";
+import { validateLink } from "@/lib/validation";
+import { authFetch } from "@/lib/authFetch";
+import { FILE_INPUT_CLASS, INPUT_CLASS } from "@/lib/styles";
+
 // يجب أن يكون مضاعفًا لـ 256KB (شرط Google للرفع القابل للاستئناف).
 const CHUNK_SIZE = 16 * 1024 * 1024;
 const MAX_RETRIES = 8;
+const SESSION_TTL_MS = 5 * 24 * 60 * 60 * 1000; // 5 أيام
+
+export interface UploadedFileMetadata {
+  link: string;
+  fileName: string;
+  fileSize?: number | null;
+  mimeType?: string | null;
+}
 
 interface Props {
-  token: string;
+  token?: string;
   currentLink?: string;
   currentName?: string;
-  onUploaded: (link: string, fileName: string) => void;
+  onUploaded: (link: string, fileName: string, meta?: UploadedFileMetadata) => void;
 }
 
 type DriveFile = { id?: string; name?: string; webViewLink?: string };
@@ -19,20 +36,66 @@ type PutResult = { status: number; range: string | null; body: string };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// PUT مباشر إلى جلسة Google Drive. نستخدم XHR لأنه يعطي تقدّم الرفع الفعلي.
+function getStorageKey(file: File): string {
+  return `push_upload_session_${file.name}_${file.size}_${file.lastModified}`;
+}
+
+function getSavedSessionUrl(file: File): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(getStorageKey(file));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { sessionUrl?: string; savedAt?: number };
+    if (!parsed.sessionUrl || !parsed.savedAt) return null;
+    if (Date.now() - parsed.savedAt > SESSION_TTL_MS) {
+      localStorage.removeItem(getStorageKey(file));
+      return null;
+    }
+    return parsed.sessionUrl;
+  } catch {
+    return null;
+  }
+}
+
+function saveSessionUrl(file: File, sessionUrl: string) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(
+      getStorageKey(file),
+      JSON.stringify({ sessionUrl, savedAt: Date.now() })
+    );
+  } catch {
+    // تجاهل امتلاء localStorage
+  }
+}
+
+function clearSavedSessionUrl(file: File) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(getStorageKey(file));
+  } catch {
+    // تجاهل
+  }
+}
+
 function putToSession(
   url: string,
   body: Blob | null,
   contentRange: string,
   onBytes?: (loaded: number) => void,
-  signal?: { aborted: boolean },
+  signal?: { aborted: boolean }
 ): Promise<PutResult> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", url);
     xhr.setRequestHeader("Content-Range", contentRange);
     if (onBytes) xhr.upload.onprogress = (e) => onBytes(e.loaded);
-    xhr.onload = () => resolve({ status: xhr.status, range: xhr.getResponseHeader("Range"), body: xhr.responseText });
+    xhr.onload = () =>
+      resolve({
+        status: xhr.status,
+        range: xhr.getResponseHeader("Range"),
+        body: xhr.responseText,
+      });
     xhr.onerror = () => reject(new Error("network"));
     xhr.ontimeout = () => reject(new Error("network"));
     xhr.onabort = () => reject(new Error("aborted"));
@@ -42,13 +105,21 @@ function putToSession(
 }
 
 function parseDone(body: string): DriveFile {
-  try { return JSON.parse(body) as DriveFile; } catch { return {}; }
+  try {
+    return JSON.parse(body) as DriveFile;
+  } catch {
+    return {};
+  }
 }
 
-// يسأل Google كم بايت استلمت فعلًا (لاستئناف الرفع بعد انقطاع الاتصال).
-async function queryProgress(url: string, size: number): Promise<{ done?: DriveFile; offset: number }> {
+async function queryProgress(
+  url: string,
+  size: number
+): Promise<{ done?: DriveFile; offset: number }> {
   const r = await putToSession(url, null, `bytes */${size}`);
-  if (r.status === 200 || r.status === 201) return { done: parseDone(r.body), offset: size };
+  if (r.status === 200 || r.status === 201) {
+    return { done: parseDone(r.body), offset: size };
+  }
   if (r.status === 308) {
     const m = r.range?.match(/bytes=0-(\d+)/);
     return { offset: m ? Number(m[1]) + 1 : 0 };
@@ -56,10 +127,14 @@ async function queryProgress(url: string, size: number): Promise<{ done?: DriveF
   throw new Error(`Google Drive (${r.status})`);
 }
 
-// رفع الملف بالكامل مباشرة من المتصفح إلى Google Drive على أجزاء، مع إعادة المحاولة والاستئناف.
-async function uploadToGoogle(sessionUrl: string, file: File, onProgress: (v: number) => void): Promise<DriveFile> {
+async function uploadToGoogle(
+  sessionUrl: string,
+  file: File,
+  initialOffset: number,
+  onProgress: (v: number) => void
+): Promise<DriveFile> {
   const size = file.size;
-  let offset = 0;
+  let offset = initialOffset;
   let failures = 0;
 
   while (offset < size) {
@@ -69,7 +144,7 @@ async function uploadToGoogle(sessionUrl: string, file: File, onProgress: (v: nu
         sessionUrl,
         file.slice(offset, end),
         `bytes ${offset}-${end - 1}/${size}`,
-        (loaded) => onProgress(Math.min(99, Math.round(((offset + loaded) / size) * 100))),
+        (loaded) => onProgress(Math.min(99, Math.round(((offset + loaded) / size) * 100)))
       );
 
       if (r.status === 200 || r.status === 201) {
@@ -84,28 +159,44 @@ async function uploadToGoogle(sessionUrl: string, file: File, onProgress: (v: nu
         continue;
       }
       if (r.status >= 500 || r.status === 429) throw new Error("retry");
-      if (r.status === 404) throw new Error("انتهت صلاحية جلسة الرفع، أعد المحاولة من البداية");
+      if (r.status === 404) {
+        clearSavedSessionUrl(file);
+        throw new Error("انتهت صلاحية جلسة الرفع، يرجى اختيار الملف مرة أخرى للبدء من جديد");
+      }
       throw new Error(`Google Drive رفض الرفع (${r.status})`);
-    } catch (err: any) {
-      const retryable = err?.message === "network" || err?.message === "retry";
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "";
+      const retryable = msg === "network" || msg === "retry";
       if (!retryable || ++failures > MAX_RETRIES) {
-        throw retryable ? new Error("انقطع الاتصال أثناء الرفع، تحقق من الإنترنت وأعد المحاولة") : err;
+        throw retryable
+          ? new Error("انقطع الاتصال أثناء الرفع، يمكنك إعادة اختيار نفس الملف لاستئناف الرفع من حيث توقف.")
+          : err;
       }
       await sleep(Math.min(1000 * 2 ** failures, 15000));
       try {
         const st = await queryProgress(sessionUrl, size);
-        if (st.done) { onProgress(100); return st.done; }
+        if (st.done) {
+          onProgress(100);
+          return st.done;
+        }
         offset = st.offset;
-      } catch { /* نعيد المحاولة من نفس الموضع */ }
+      } catch {
+        // نعيد المحاولة من نفس الموضع
+      }
     }
   }
   throw new Error("لم يُرجع Google Drive نتيجة نهائية للرفع");
 }
 
-export default function DriveFileInput({ token, currentLink, currentName, onUploaded }: Props) {
+const ACCEPT_ATTR = Array.from(ALLOWED_UPLOAD_EXTENSIONS)
+  .map((ext) => `.${ext}`)
+  .join(",");
+
+export default function DriveFileInput({ currentLink, currentName, onUploaded }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [progress, setProgress] = useState(0);
+  const [resumedFromPercent, setResumedFromPercent] = useState<number | null>(null);
   const [fileInfo, setFileInfo] = useState("");
   const [uploadedName, setUploadedName] = useState(currentName || "");
   const [pasted, setPasted] = useState("");
@@ -118,81 +209,169 @@ export default function DriveFileInput({ token, currentLink, currentName, onUplo
     setBusy(true);
     setError("");
     setProgress(0);
+    setResumedFromPercent(null);
     setFileInfo(`${file.name} · ${formatBytes(file.size)}`);
 
     try {
-      if (file.size === 0) throw new Error("الملف فارغ");
-      if (file.size > MAX_UPLOAD_BYTES) {
-        throw new Error(`حجم الملف (${formatBytes(file.size)}) أكبر من الحد المسموح به (${MAX_UPLOAD_LABEL})`);
+      const fileCheck = validateUploadFileMeta(file.name, file.type, file.size);
+      if (!fileCheck.valid) {
+        throw new Error(fileCheck.error || "نوع أو حجم الملف غير مسموح به");
       }
-      if (!token) throw new Error("انتهت جلسة تسجيل الدخول، يرجى تسجيل الدخول مرة أخرى");
-      const auth = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+      if (file.size > MAX_UPLOAD_BYTES) {
+        throw new Error(
+          `حجم الملف (${formatBytes(file.size)}) أكبر من الحد المسموح به (${MAX_UPLOAD_LABEL})`
+        );
+      }
 
-      // 1) طلب صغير للسيرفر: إنشاء جلسة رفع في Google Drive (بدون ملف).
-      const init = await fetch("/api/upload/drive/initiate", {
-        method: "POST",
-        headers: auth,
-        body: JSON.stringify({ fileName: file.name, mimeType: file.type || "application/octet-stream", fileSize: file.size }),
-      });
-      const initData = await init.json().catch(() => ({}));
-      if (!init.ok || !initData.sessionUrl) throw new Error(initData.error || "تعذر بدء الرفع إلى Google Drive");
+      // محاولة استئناف جلسة رفع سابقة محفوظة في localStorage لنفس الملف (الاسم + الحجم + تاريخ التعديل)
+      let sessionUrl = getSavedSessionUrl(file);
+      let startOffset = 0;
+      let alreadyDone: DriveFile | undefined;
 
-      // 2) رفع الملف مباشرة من المتصفح إلى Google Drive — لا وسيط.
-      const uploaded = await uploadToGoogle(initData.sessionUrl, file, setProgress);
+      if (sessionUrl) {
+        try {
+          const st = await queryProgress(sessionUrl, file.size);
+          if (st.done?.id) {
+            alreadyDone = st.done;
+          } else if (st.offset > 0 && st.offset < file.size) {
+            startOffset = st.offset;
+            const pct = Math.round((startOffset / file.size) * 100);
+            setProgress(pct);
+            setResumedFromPercent(pct);
+          }
+        } catch {
+          clearSavedSessionUrl(file);
+          sessionUrl = null;
+        }
+      }
+
+      // إذا لم تكن هناك جلسة سابقة صالحة، ننشئ جلسة جديدة من السيرفر
+      if (!sessionUrl) {
+        const init = await authFetch("/api/upload/drive/initiate", {
+          method: "POST",
+          body: JSON.stringify({
+            fileName: file.name,
+            mimeType: file.type || "application/octet-stream",
+            fileSize: file.size,
+          }),
+        });
+        const initData = await init.json().catch(() => ({}));
+        if (!init.ok || !initData.sessionUrl) {
+          throw new Error(initData.error || "تعذر بدء الرفع إلى Google Drive");
+        }
+        sessionUrl = String(initData.sessionUrl);
+        saveSessionUrl(file, sessionUrl);
+      }
+
+      const uploaded =
+        alreadyDone ?? (await uploadToGoogle(sessionUrl, file, startOffset, setProgress));
       if (!uploaded.id) throw new Error("لم يُرجع Google Drive معرّف الملف");
 
-      // 3) طلب صغير للسيرفر: جعل الملف قابلًا للعرض وإرجاع الرابط.
-      const fin = await fetch("/api/upload/drive/finalize", {
+      const fin = await authFetch("/api/upload/drive/finalize", {
         method: "POST",
-        headers: auth,
         body: JSON.stringify({ fileId: uploaded.id, fileName: file.name }),
       });
       const finData = await fin.json().catch(() => ({}));
-      if (!fin.ok || !finData.drive_link) throw new Error(finData.error || "تم الرفع لكن تعذر تجهيز رابط الملف");
+      if (!fin.ok || !finData.drive_link) {
+        throw new Error(finData.error || "تم الرفع لكن تعذر تجهيز رابط الملف");
+      }
 
+      clearSavedSessionUrl(file);
       setPasted("");
-      setUploadedName(finData.file_name || file.name);
-      onUploaded(finData.drive_link, finData.file_name || file.name);
+      const finalName = finData.file_name || file.name;
+      setUploadedName(finalName);
+      onUploaded(finData.drive_link, finalName, {
+        link: finData.drive_link,
+        fileName: finalName,
+        fileSize: finData.file_size ?? file.size,
+        mimeType: finData.mime_type ?? file.type,
+      });
       setProgress(100);
-    } catch (err: any) {
-      setError(err?.message || "تعذر الاتصال أثناء الرفع");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "تعذر الاتصال أثناء الرفع");
     } finally {
       setBusy(false);
       if (fileRef.current) fileRef.current.value = "";
     }
   }
 
+  function handlePasteChange(rawVal: string) {
+    setPasted(rawVal);
+    const trimmed = rawVal.trim();
+    if (!trimmed) {
+      setError("");
+      onUploaded("", "");
+      return;
+    }
+    const check = validateLink(trimmed);
+    if (!check.valid || !check.url) {
+      setError(check.error || "الرابط غير صالح");
+      onUploaded("", "");
+      return;
+    }
+    setError("");
+    onUploaded(check.url, "");
+  }
+
   return (
     <div className="space-y-2">
-      <input ref={fileRef} type="file" onChange={handleFile} disabled={busy} className={input} />
-      <p className="text-[11px] font-bold text-ink/45">أي نوع ملف حتى {MAX_UPLOAD_LABEL}، يُرفع مباشرة إلى Google Drive.</p>
+      <input
+        ref={fileRef}
+        type="file"
+        accept={ACCEPT_ATTR}
+        onChange={handleFile}
+        disabled={busy}
+        className={FILE_INPUT_CLASS}
+      />
+      <p className="text-[11px] font-bold text-ink/45">
+        الأنواع المسموحة: PDF، Word، PowerPoint، Excel، الصور، والملفات المضغوطة (ZIP/RAR) حتى{" "}
+        {MAX_UPLOAD_LABEL}. يدعم استئناف الرفع تلقائيًا عند انقطاع الاتصال.
+      </p>
       <input
         type="url"
         dir="ltr"
         value={pasted}
-        onChange={(e) => {
-          setPasted(e.target.value);
-          setError("");
-          onUploaded(e.target.value.trim(), "");
-        }}
+        onChange={(e) => handlePasteChange(e.target.value)}
         disabled={busy}
-        placeholder="أو الصق رابط الملف (Google Drive / أي رابط عام)"
-        className={input}
+        placeholder="أو الصق رابط ملف آمن (https://drive.google.com/...)"
+        className={INPUT_CLASS}
       />
       {busy && (
         <div className="space-y-1">
-          <p className="text-xs font-bold text-olive-dark">جارٍ رفع الملف... {progress}% <span className="font-normal text-ink/45" dir="ltr">{fileInfo}</span></p>
+          <p className="text-xs font-bold text-olive-dark">
+            جارٍ رفع الملف... {progress}%{" "}
+            {resumedFromPercent !== null && (
+              <span className="text-clay">(تم الاستئناف من {resumedFromPercent}%) </span>
+            )}
+            <span className="font-normal text-ink/45" dir="ltr">
+              {fileInfo}
+            </span>
+          </p>
           <div className="h-2 overflow-hidden rounded-full bg-olive/10">
-            <div className="h-full rounded-full bg-clay transition-all" style={{ width: `${progress}%` }} />
+            <div
+              className="h-full rounded-full bg-clay transition-all"
+              style={{ width: `${progress}%` }}
+            />
           </div>
-          <p className="text-[11px] text-ink/45">لا تغلق الصفحة حتى يكتمل الرفع.</p>
+          <p className="text-[11px] text-ink/45">
+            إذا أُغلقت الصفحة عن طريق الخطأ، اختر نفس الملف مرة أخرى وسيُستأنف الرفع من حيث توقف.
+          </p>
         </div>
       )}
       {error && <p className="text-xs font-bold text-clay-dark">{error}</p>}
       {!busy && !error && !pasted && (currentLink || uploadedName) && (
         <p className="rounded-xl bg-olive/5 px-3 py-2 text-xs font-bold text-olive-dark">
-          تم رفع الملف{uploadedName ? `: ${uploadedName}` : ""} ✓
-          {currentLink && <a href={currentLink} target="_blank" rel="noreferrer" className="mr-2 text-clay hover:underline">عرض الملف ←</a>}
+          تم تجهيز الملف{uploadedName ? `: ${uploadedName}` : ""} ✓
+          {currentLink && (
+            <a
+              href={currentLink}
+              target="_blank"
+              rel="noreferrer"
+              className="mr-2 text-clay hover:underline"
+            >
+              عرض الملف ←
+            </a>
+          )}
         </p>
       )}
     </div>

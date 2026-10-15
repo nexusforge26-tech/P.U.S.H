@@ -4,23 +4,40 @@ import SearchBox from "@/components/SearchBox";
 import MaterialCarousel from "@/components/MaterialCarousel";
 import MaterialCard from "@/components/MaterialCard";
 import TypeIcon from "@/components/TypeIcon";
-import { getFeaturedMaterials, getRecentMaterials, getUniversities } from "@/lib/data";
+import {
+  getFeaturedMaterials,
+  getPlatformStats,
+  getRecentMaterials,
+  getUniversities,
+} from "@/lib/data";
 import { MATERIAL_TYPE_LABELS, type MaterialType } from "@/lib/types";
 
 export const revalidate = 60;
 
 export default async function HomePage() {
-  const [featured, recent, universities] = await Promise.all([
-    safe(getFeaturedMaterials(10)),
-    safe(getRecentMaterials(8)),
-    safe(getUniversities()),
+  const [featured, recent, universities, stats] = await Promise.all([
+    safeList(getFeaturedMaterials(10)),
+    safeList(getRecentMaterials(8)),
+    safeList(getUniversities()),
+    getPlatformStats().catch(() => ({
+      materials: 0,
+      courses: 0,
+      universities: 0,
+      downloads: 0,
+    })),
   ]);
 
   return (
     <div className="overflow-hidden">
       <section className="relative isolate border-b border-olive/10 bg-[#eef1e9]">
-        <div aria-hidden className="pointer-events-none absolute -left-32 top-8 h-80 w-80 rounded-full bg-gold/20 blur-3xl" />
-        <div aria-hidden className="pointer-events-none absolute -right-28 top-24 h-[28rem] w-[28rem] rounded-full bg-clay/10 blur-3xl" />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -left-32 top-8 h-80 w-80 rounded-full bg-gold/20 blur-3xl"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-28 top-24 h-[28rem] w-[28rem] rounded-full bg-clay/10 blur-3xl"
+        />
         <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-l from-clay via-gold to-olive" />
 
         <div className="relative mx-auto grid max-w-7xl items-center gap-12 px-5 py-14 sm:px-8 sm:py-20 lg:grid-cols-[1.05fr_.95fr] lg:py-24">
@@ -36,8 +53,8 @@ export default async function HomePage() {
             </h1>
 
             <p className="mt-6 max-w-2xl text-base leading-8 text-ink/65 sm:text-lg">
-              ملخصات، امتحانات سابقة، ملفات مرجعية وفيديوهات شرح — مكتبة رقمية
-              مرتبة تساعدك على الوصول للمعلومة بأقل عدد من الخطوات.
+              ملخصات، امتحانات سابقة، ملفات مرجعية وفيديوهات شرح — مكتبة رقمية مرتبة تساعدك على
+              الوصول للمعلومة بأقل عدد من الخطوات.
             </p>
 
             <div className="mt-8 max-w-2xl">
@@ -65,7 +82,9 @@ export default async function HomePage() {
             <div className="animate-float-soft relative rounded-[36px] border border-white/80 bg-white/60 p-3 shadow-soft backdrop-blur">
               <div className="overflow-hidden rounded-[29px] bg-olive p-7 text-parchment sm:p-9">
                 <div className="flex items-center justify-between">
-                  <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold tracking-widest">PUSH</span>
+                  <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold tracking-widest">
+                    PUSH
+                  </span>
                   <span className="text-xs text-parchment/60">مكتبة اليوم</span>
                 </div>
 
@@ -81,7 +100,10 @@ export default async function HomePage() {
                     ["امتحانات", "02"],
                     ["فيديوهات", "03"],
                   ].map(([label, number]) => (
-                    <div key={number} className="rounded-2xl bg-white/10 p-3 ring-1 ring-white/10">
+                    <div
+                      key={number}
+                      className="rounded-2xl bg-white/10 p-3 ring-1 ring-white/10"
+                    >
                       <div className="text-[10px] text-parchment/45">{number}</div>
                       <div className="mt-5 text-xs font-bold">{label}</div>
                     </div>
@@ -98,13 +120,16 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {(featured.length > 0 || recent.length > 0 || universities.length > 0) && (
+      {(stats.materials > 0 || stats.universities > 0 || stats.courses > 0) && (
         <section className="border-b border-olive/10 bg-white/60">
           <div className="mx-auto grid max-w-7xl grid-cols-2 gap-px overflow-hidden px-5 py-4 sm:grid-cols-4 sm:px-8">
-            <Stat value={String(featured.length + recent.length)} label="مواد ظاهرة الآن" />
-            <Stat value={String(universities.length)} label="جامعات" />
-            <Stat value="4" label="أنواع للمحتوى" />
-            <Stat value="24/7" label="وصول للمكتبة" />
+            <Stat value={stats.materials.toLocaleString("ar")} label="إجمالي المواد المنشورة" />
+            <Stat value={stats.courses.toLocaleString("ar")} label="المساقات الدراسية" />
+            <Stat value={stats.universities.toLocaleString("ar")} label="الجامعات الفلسطينية" />
+            <Stat
+              value={stats.downloads.toLocaleString("ar")}
+              label="إجمالي المشاهدات والتنزيلات"
+            />
           </div>
         </section>
       )}
@@ -112,7 +137,10 @@ export default async function HomePage() {
       {featured.length > 0 && (
         <section className="mx-auto max-w-7xl px-5 py-16 sm:px-8">
           <SectionHeading eyebrow="مختارات" title="ابدأ من المواد المميزة">
-            <Link href="/browse" className="rounded-full border border-olive/10 bg-white px-4 py-2 text-sm font-bold text-olive/70 shadow-sm transition hover:border-gold/40 hover:text-clay">
+            <Link
+              href="/browse"
+              className="rounded-full border border-olive/10 bg-white px-4 py-2 text-sm font-bold text-olive/70 shadow-sm transition hover:border-gold/40 hover:text-clay"
+            >
               عرض المكتبة ←
             </Link>
           </SectionHeading>
@@ -124,7 +152,9 @@ export default async function HomePage() {
         <section className="border-y border-olive/10 bg-[#eef1e9]/70">
           <div className="mx-auto max-w-7xl px-5 py-16 sm:px-8">
             <SectionHeading eyebrow="تصفّح حسب" title="اختر جامعتك">
-              <Link href="/universities" className="text-sm font-bold text-olive/60 hover:text-clay">تصفح متسلسل ←</Link>
+              <Link href="/universities" className="text-sm font-bold text-olive/60 hover:text-clay">
+                تصفح متسلسل ←
+              </Link>
             </SectionHeading>
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -141,7 +171,9 @@ export default async function HomePage() {
                     </span>
                     <span className="font-bold text-ink/80">{u.name_ar}</span>
                   </span>
-                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-olive/5 text-olive transition group-hover:bg-olive group-hover:text-parchment">←</span>
+                  <span className="flex h-9 w-9 items-center justify-center rounded-full bg-olive/5 text-olive transition group-hover:bg-olive group-hover:text-parchment">
+                    ←
+                  </span>
                 </Link>
               ))}
             </div>
@@ -153,14 +185,26 @@ export default async function HomePage() {
         <div className="flex flex-col gap-6 rounded-[32px] border border-olive/10 bg-white p-7 shadow-card sm:flex-row sm:items-center sm:justify-between sm:p-9">
           <div className="max-w-xl">
             <span className="text-xs font-bold tracking-widest text-clay">جديد</span>
-            <h2 className="mt-2 font-display text-3xl font-bold text-olive-dark">معلومات الدكاترة</h2>
+            <h2 className="mt-2 font-display text-3xl font-bold text-olive-dark">
+              معلومات الدكاترة
+            </h2>
             <p className="mt-2 text-sm leading-7 text-ink/55">
               البريد الإلكتروني، المساقات، وموقع المكتب لكل دكتور — بمساهمة الطلبة وبموافقة المسؤول.
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap gap-3">
-            <Link href="/doctors" className="rounded-full border border-olive/10 bg-white px-5 py-3 text-sm font-bold text-olive/70 shadow-sm transition hover:border-gold/40 hover:text-clay">تصفح الدكاترة ←</Link>
-            <Link href="/doctors/submit" className="rounded-full bg-clay px-5 py-3 text-sm font-black text-parchment shadow-card transition hover:-translate-y-0.5">+ إضافة معلومات دكتور</Link>
+            <Link
+              href="/doctors"
+              className="rounded-full border border-olive/10 bg-white px-5 py-3 text-sm font-bold text-olive/70 shadow-sm transition hover:border-gold/40 hover:text-clay"
+            >
+              تصفح الدكاترة ←
+            </Link>
+            <Link
+              href="/doctors/submit"
+              className="rounded-full bg-clay px-5 py-3 text-sm font-black text-parchment shadow-card transition hover:-translate-y-0.5"
+            >
+              + إضافة معلومات دكتور
+            </Link>
           </div>
         </div>
       </section>
@@ -168,10 +212,17 @@ export default async function HomePage() {
       {recent.length > 0 && (
         <section className="mx-auto max-w-7xl px-5 py-16 sm:px-8">
           <SectionHeading eyebrow="وصل حديثًا" title="أحدث ما أُضيف">
-            <Link href="/browse" className="rounded-full bg-olive px-4 py-2 text-sm font-bold text-parchment shadow-card transition hover:bg-olive-dark">كل المواد ←</Link>
+            <Link
+              href="/browse"
+              className="rounded-full bg-olive px-4 py-2 text-sm font-bold text-parchment shadow-card transition hover:bg-olive-dark"
+            >
+              كل المواد ←
+            </Link>
           </SectionHeading>
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-            {recent.map((m) => <MaterialCard key={m.id} material={m} />)}
+            {recent.map((m) => (
+              <MaterialCard key={m.id} material={m} />
+            ))}
           </div>
         </section>
       )}
@@ -182,20 +233,37 @@ export default async function HomePage() {
             <TypeIcon type="file" className="h-8 w-8" />
           </div>
           <h2 className="font-display text-3xl font-bold text-olive-dark">المكتبة قيد التجهيز</h2>
-          <p className="mt-3 leading-7 text-ink/55">لم تتم إضافة أي مواد بعد. تابعونا قريبًا مع أول دفعة من المحتوى الدراسي.</p>
-          <Link href="/browse" className="mt-7 inline-flex rounded-full bg-olive px-6 py-3 text-sm font-bold text-parchment">استكشاف المكتبة</Link>
+          <p className="mt-3 leading-7 text-ink/55">
+            لم تتم إضافة أي مواد بعد. تابعونا قريبًا مع أول دفعة من المحتوى الدراسي.
+          </p>
+          <Link
+            href="/browse"
+            className="mt-7 inline-flex rounded-full bg-olive px-6 py-3 text-sm font-bold text-parchment"
+          >
+            استكشاف المكتبة
+          </Link>
         </section>
       )}
     </div>
   );
 }
 
-function SectionHeading({ eyebrow, title, children }: { eyebrow: string; title: string; children?: React.ReactNode }) {
+function SectionHeading({
+  eyebrow,
+  title,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  children?: React.ReactNode;
+}) {
   return (
     <div className="mb-7 flex items-end justify-between gap-4">
       <div>
         <span className="text-xs font-black uppercase tracking-[0.2em] text-clay">{eyebrow}</span>
-        <h2 className="mt-1 font-display text-3xl font-bold text-olive-dark sm:text-4xl">{title}</h2>
+        <h2 className="mt-1 font-display text-3xl font-bold text-olive-dark sm:text-4xl">
+          {title}
+        </h2>
       </div>
       {children}
     </div>
@@ -211,6 +279,10 @@ function Stat({ value, label }: { value: string; label: string }) {
   );
 }
 
-async function safe<T>(p: Promise<T[]>): Promise<T[]> {
-  try { return await p; } catch { return []; }
+async function safeList<T>(p: Promise<T[]>): Promise<T[]> {
+  try {
+    return await p;
+  } catch {
+    return [];
+  }
 }

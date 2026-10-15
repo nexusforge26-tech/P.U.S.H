@@ -4,133 +4,88 @@
 
 ## التقنية
 
-- Next.js 14 + TypeScript + Tailwind CSS
-- Supabase Auth + PostgreSQL
+- Next.js 14 (App Router) + TypeScript + Tailwind CSS
+- Supabase Auth (PKCE Flow) + PostgreSQL + Row Level Security
 - Google OAuth للحسابات
-- Google Drive وروابط YouTube للمصادر
+- رفع مباشر قابل للاستئناف (Resumable Upload) إلى Google Drive عبر REST API بدون مكتبات ضخمة
 - Vercel للاستضافة
 
 ## إعداد Supabase
 
-> **الهيكل الآن: جامعة ← مساق ← منشورات (بدون كليات).**
+> **الهيكل: جامعة ← مساق ← منشورات (بدون كليات).**
 > - قاعدة جديدة: نفّذ **كامل ملف `supabase/schema.sql`**.
-> - قاعدة قائمة فيها جدول `faculties`: نفّذ `supabase/migrations/2026-10-13-remove-faculties.sql` **قبل** نشر الكود الجديد (يحافظ على كل المساقات والمواد).
+> - قاعدة قائمة: نفّذ ملفات الترحيل في `supabase/migrations/` بالترتيب:
+>   1. `supabase/migrations/2026-10-13-remove-faculties.sql` (إذا كانت القاعدة قديمة وتحتوي على جدول `faculties`)
+>   2. `supabase/migrations/2026-10-15-security-and-features.sql` (لتحديثات الأمان، الفهارس، تطبيع البحث العربي، الإشعارات، والبلاغات)
 
-نفّذ **كامل ملف `supabase/schema.sql`** داخل Supabase SQL Editor. الملف ينشئ الجداول ويضيف:
+لتعيين بريد المالك الأساسي في قاعدة البيانات أيضًا (اختياري بجانب متغير البيئة `OWNER_EMAIL`):
 
-- `profiles` لحسابات الأعضاء.
-- ثلاث صلاحيات: `user` مستخدم عادي، `admin` مسؤول، `owner` مالك.
-- الحساب الجديد يبدأ تلقائيًا كمستخدم عادي.
-- البريد `ydha957@gmail.com` يُعيّن تلقائيًا كمالك للموقع عند إنشاء الحساب، كما يتم تثبيته كمالك عند تنفيذ الـ schema.
-- `submissions` لمساهمات الأعضاء التي تبقى معلقة حتى الموافقة.
-- سياسات RLS تمنع الأعضاء العاديين من نشر المواد مباشرة.
+```sql
+insert into public.app_settings(key, value)
+values ('owner_email', 'your-owner-email@example.com')
+on conflict (key) do update set value = excluded.value;
+```
 
-### تفعيل Google
+### تفعيل Google Auth
 
-من Supabase:
+من لوحة تحكم Supabase:
 1. Authentication → Providers → Google → فعّل Google.
 2. أضف بيانات OAuth الخاصة بتطبيق Google.
-3. أضف رابط إعادة التوجيه الخاص بالمشروع، مثل:
-   `https://YOUR-DOMAIN.com/auth/callback`
-4. محليًا استخدم:
-   `http://localhost:3000/auth/callback`
-
-> لا يحتاج المستخدم إلى كلمة مرور خاصة بالموقع. إنشاء الحساب وتسجيل الدخول كلاهما عبر زر «المتابعة مع Google».
+3. أضف رابط إعادة التوجيه الخاص بالمشروع:
+   - في الإنتاج: `https://YOUR-DOMAIN.com/auth/callback`
+   - محليًا: `http://localhost:3000/auth/callback`
 
 ## متغيرات البيئة
 
+انسخ ملف `.env.example` إلى `.env.local` واضبط المتغيرات التالية:
+
 ```env
+# Supabase
 NEXT_PUBLIC_SUPABASE_URL=https://xxxxxxxxxxxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOi...
 SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOi...
-GOOGLE_SERVICE_ACCOUNT_EMAIL=push-uploader@your-project.iam.gserviceaccount.com
-GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+
+# بريد المالك الأساسي للمنصة (أو عدة عناوين مفصولة بفاصلة)
+OWNER_EMAIL=your-owner-email@example.com
+
+# رابط الموقع العام (لـ Sitemap و OpenGraph)
+NEXT_PUBLIC_SITE_URL=https://your-domain.vercel.app
+
+# Google Drive (موصى باستخدام OAuth 2.0 مع حساب Google شخصي)
 GOOGLE_DRIVE_FOLDER_ID=1AbCDEfGhIjKlMnOpQrStUvWxYz
+GOOGLE_OAUTH_CLIENT_ID=...
+GOOGLE_OAUTH_CLIENT_SECRET=...
+GOOGLE_OAUTH_REFRESH_TOKEN=...
 ```
 
-`SUPABASE_SERVICE_ROLE_KEY` سري ويجب أن يبقى في السيرفر/متغيرات Vercel فقط. متغيرات `GOOGLE_SERVICE_ACCOUNT_*` و`GOOGLE_DRIVE_FOLDER_ID` مطلوبة لرفع الملفات مباشرة إلى Drive الموقع (راجع `.env.example` لخطوات إنشاء حساب الخدمة).
+> **ملاحظة مهمة حول Google Drive:**
+> حسابات الخدمة (`Service Account`) لا تملك مساحة تخزين خاصة ولا تعمل إلا مع **Shared Drives** المدفوعة في Google Workspace. لذلك إذا كنت تستخدم حساب Google Drive شخصيًا عاديًا (15 جيجابايت)، استخدم متغيرات `GOOGLE_OAUTH_*` الثلاثة كما هو مشروح في `.env.example`.
 
-## الحسابات والصلاحيات
+## أبرز ميزات الأمان وجودة المحتوى
 
-### مستخدم عادي
-- يستطيع رؤية وتنزيل كل المحتوى العام بدون تسجيل دخول.
-- بعد تسجيل الدخول يستطيع إرسال مادة.
-- يستطيع متابعة حالة مساهماته.
-- لا يستطيع نشر مادة مباشرة أو إدارة الموقع.
+- **التحقق الصارم من الروابط (`validateLink`)**: قبول روابط `https://` الموثوقة فقط ومنع `javascript:` و`data:` والروابط المحلية في كل مسارات الإدخال والعرض.
+- **حماية رفع الملفات**: قائمة سماح للامتدادات والـ MIME Types الأكاديمية (PDF، Office، الصور، والملفات المضغوطة) مع فحص نوع الملف الفعلي من Google Drive عند الإنهاء وحذف أي ملف مخالف أو مرفوض تلقائيًا.
+- **استئناف الرفع التلقائي**: حفظ جلسة الرفع في `localStorage` لاستئناف رفع الملفات الكبيرة من نفس النقطة حتى بعد إغلاق الصفحة.
+- **مراجعة غنية وذرّية (Atomic Review)**: معاينة مدمجة للملف والفيديو في لوحة الإدارة، كشف تلقائي لتكرار العناوين، إمكانية تعديل البيانات قبل القبول، قبول جماعي، وأسباب رفض جاهزة مع إرسال إشعارات فورية للمساهم.
+- **حماية ما بعد القبول**: يستطيع صاحب المادة خلال 6 ساعات تعديل العنوان والوصف مباشرة، بينما يتحول أي تغيير في رابط الملف إلى «تعديل معلّق» يمر بمراجعة الإدارة.
 
-### مسؤول
-- يدخل إلى `/admin` باستخدام حساب Google العادي نفسه.
-- يدير الجامعات والمساقات والمواد.
-- يراجع مساهمات الأعضاء ويقبلها أو يرفضها.
-- يستطيع إدارة صلاحيات المستخدمين إلى مستخدم عادي/مسؤول.
-- لا يستطيع منح صلاحية المالك أو تغيير مالك الموقع.
-
-### مالك
-- كل صلاحيات المسؤول.
-- يستطيع ترقية/خفض المسؤولين والمستخدمين.
-- يستطيع تعيين مالك آخر.
-- البريد الأساسي المحدد للموقع هو `ydha957@gmail.com`.
-
-## مساهمات الأعضاء
-
-المستخدم المسجل يفتح `/submit` ويرفع الملف من جهازه (للامتحانات/الملخصات/الملفات) أو يرسل رابط YouTube (للفيديوهات) مع بيانات المادة. يختار المستخدم الجامعة ثم المساق. الملف (أي نوع، حتى **1 جيجابايت**) يُرفع من المتصفح **مباشرة إلى Google Drive** الخاص بالموقع عبر جلسة رفع قابلة للاستئناف وعلى أجزاء مع إعادة المحاولة تلقائيًا؛ لا يمر الملف عبر Vercel ولا Supabase (يمر فقط طلبان صغيران: بدء الجلسة وإنهاؤها)، ثم يُحفظ رابطه في `submissions` بحالة `pending`.
-
-من لوحة `/admin`:
-1. افتح «المساهمات المعلقة».
-2. راجع المادة وصاحبها.
-3. اختر «قبول ونشر» أو «رفض».
-4. عند القبول تُنسخ المادة إلى `materials` وتظهر للعامة.
-
-## معلومات الدكاترة
-
-أي شخص (بعد تسجيل الدخول) يستطيع فتح `/doctors/submit` وإرسال معلومات دكتور: الاسم الكامل، البريد الإلكتروني، الرقم الخاص (اختياري)، موقع المكتب، الجامعة، والمساقات (يمكن إضافة أكثر من مساق). تُحفظ في `doctor_submissions` بحالة `pending` ولا تظهر في `/doctors` إلا بعد موافقة المسؤول.
-
-إذا كان الدكتور موجودًا مسبقًا، يرفض المسؤول الإضافة (مع توضيح السبب)، ويستطيع صاحب المساهمة بعدها فتح `/doctors/submit`، اختيار تبويب «تعديل دكتور موجود»، واختيار الدكتور من القائمة — فتُعبَّأ الحقول تلقائيًا بمعلوماته الحالية ويظهر الفرق بين القديم والمقترح قبل الإرسال. هذا التعديل أيضًا يحتاج موافقة المسؤول، الذي يرى في تبويب «معلومات الدكاترة» بلوحة الإدارة كل حقل تغيّر (القديم ثم السهم ثم الجديد) قبل القبول أو الرفض.
-
-## المحتوى العام
-
-لا يوجد أي شرط لتسجيل الدخول لمشاهدة أو تنزيل المحتوى. هذه الوظيفة تبقى متاحة للزوار كما كانت.
-
-## تشغيل المشروع
+## تشغيل المشروع والاختبارات
 
 ```bash
 npm install
 npm run dev
 ```
 
-ثم افتح `http://localhost:3000`.
+لتشغيل اختبارات الوحدات (Unit Tests):
+
+```bash
+npm test
+```
 
 ## النشر على Vercel
 
-أضف متغيرات Supabase الثلاثة السابقة إلى Environment Variables في Vercel، وتأكد من إعداد Google OAuth Redirect URL على نطاق Vercel الفعلي.
-
-## المجلدات المهمة
-
-```text
-app/
-  auth/                    تسجيل الدخول وعودة Google OAuth
-  account/                 حساب العضو ومساهماته
-  universities/            الجامعة ← المساق ← المنشورات (تصفح)
-  submit/                  إرسال مادة للمراجعة (رفع ملف مباشر أو رابط YouTube)
-  doctors/                 تصفح معلومات الدكاترة
-  doctors/submit/          إرسال معلومات دكتور جديد أو تعديل دكتور موجود
-  admin/                   لوحة الإدارة
-  api/submissions/         API مساهمات المستخدمين
-  api/doctor-submissions/  API مساهمات معلومات الدكاترة
-  api/admin/users/         إدارة الأعضاء والصلاحيات
-  api/admin/submissions/   مراجعة ونشر المساهمات
-  api/admin/doctor-submissions/ مراجعة معلومات الدكاترة (مع عرض الفرق عند التعديل)
-  api/admin/materials/     إدارة المواد
-  api/admin/taxonomy/      إدارة الجامعات والمساقات
-  api/upload/drive/        رفع ملف مباشر إلى Google Drive الخاص بالموقع
-components/
-  Header.tsx               حالة الحساب وتسجيل الدخول
-  Footer.tsx               التوقيع ورابط المطور
-  DriveFileInput.tsx       رفع ملف من الجهاز إلى Drive وربطه بالمادة
-  DoctorFilters.tsx        بحث وفلترة صفحة الدكاترة
-lib/
-  auth.ts                  التحقق من جلسة وصلاحية المستخدم
-  googleDrive.ts           رفع الملفات إلى Drive عبر حساب خدمة Google
-supabase/
-  schema.sql               مخطط قاعدة البيانات والصلاحيات
-```
+عند نشر المشروع على Vercel، أضف **جميع** متغيرات البيئة التالية في إعدادات المشروع (Environment Variables):
+1. متغيرات Supabase الثلاثة (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`).
+2. متغير بريد المالك (`OWNER_EMAIL`) ورابط الموقع (`NEXT_PUBLIC_SITE_URL`).
+3. متغيرات Google Drive (`GOOGLE_DRIVE_FOLDER_ID` مع ثلاثي `GOOGLE_OAUTH_CLIENT_ID` و`GOOGLE_OAUTH_CLIENT_SECRET` و`GOOGLE_OAUTH_REFRESH_TOKEN`).
+4. تأكد من إضافة رابط `https://YOUR-VERCEL-DOMAIN.vercel.app/auth/callback` في إعدادات Supabase Redirect URLs.

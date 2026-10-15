@@ -2,15 +2,46 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireRole } from "@/lib/auth";
 
-// سجل المنشورات: يظهر فقط للمسؤول والمالك (requireRole يمنع أي دور آخر).
 export async function GET(req: NextRequest) {
-  if (!(await requireRole(req, ["admin", "owner"]))) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
-  const limit = Math.min(300, Math.max(20, Number(new URL(req.url).searchParams.get("limit") ?? 150)));
-  const { data, error } = await supabaseAdmin
+  if (!(await requireRole(req, ["admin", "owner"]))) {
+    return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
+  }
+
+  const { searchParams } = new URL(req.url);
+  const actionFilter = searchParams.get("action")?.trim() ?? "";
+  const q = searchParams.get("q")?.trim() ?? "";
+  const page = Math.max(1, Number(searchParams.get("page") ?? 1) || 1);
+  const pageSize = Math.min(100, Math.max(15, Number(searchParams.get("pageSize") ?? 30) || 30));
+  const from = (page - 1) * pageSize;
+
+  let query = supabaseAdmin
     .from("activity_log")
-    .select("id,actor_id,actor_name,actor_email,action,target_type,target_id,title_ar,course_id,created_at")
+    .select(
+      "id,actor_id,actor_name,actor_email,action,target_type,target_id,title_ar,course_id,created_at",
+      { count: "exact" }
+    )
     .order("created_at", { ascending: false })
-    .limit(limit);
+    .range(from, from + pageSize - 1);
+
+  if (actionFilter) {
+    query = query.eq("action", actionFilter);
+  }
+  if (q) {
+    const safe = q.replace(/[,()%*]/g, " ").trim();
+    if (safe) {
+      query = query.or(
+        `title_ar.ilike.%${safe}%,actor_name.ilike.%${safe}%,actor_email.ilike.%${safe}%`
+      );
+    }
+  }
+
+  const { data, count, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ items: data ?? [] });
+
+  return NextResponse.json({
+    items: data ?? [],
+    count: count ?? 0,
+    page,
+    pageSize,
+  });
 }
