@@ -131,6 +131,8 @@ create table if not exists profiles (
   university_id uuid references universities(id) on delete set null,
   -- الجامعة التي يديرها «مسؤول الجامعة» (uni_admin)؛ مستقلة عن university_id حتى لا يوسّع الطالب نطاقه بتغيير جامعته
   managed_university_id uuid references universities(id) on delete set null,
+  -- وقت أول عرض لنافذة إكمال البيانات؛ تظهر مرة واحدة فقط لكل حساب
+  profile_prompted_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -138,6 +140,7 @@ create table if not exists profiles (
 alter table profiles drop constraint if exists profiles_role_check;
 alter table profiles add constraint profiles_role_check check (role in ('user','uni_admin','admin','owner'));
 alter table profiles add column if not exists managed_university_id uuid references universities(id) on delete set null;
+alter table profiles add column if not exists profile_prompted_at timestamptz;
 create index if not exists idx_profiles_managed_university on profiles(managed_university_id);
 create index if not exists idx_profiles_role on profiles(role);
 create index if not exists idx_profiles_email on profiles(email);

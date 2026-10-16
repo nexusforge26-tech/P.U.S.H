@@ -38,3 +38,9 @@ where al.university_id is null and al.actor_id = p.id;
 
 comment on column public.profiles.managed_university_id is
   'الجامعة التي يديرها مسؤول الجامعة (role = uni_admin). NULL لبقية الأدوار.';
+
+-- 4) نافذة إكمال البيانات تظهر مرة واحدة فقط لكل حساب (وقت أول عرض)
+alter table public.profiles add column if not exists profile_prompted_at timestamptz;
+-- الحسابات التي أكملت بياناتها لا تحتاج النافذة أصلًا
+update public.profiles set profile_prompted_at = coalesce(profile_prompted_at, now())
+where phone is not null and whatsapp is not null and university_id is not null and full_name is not null;

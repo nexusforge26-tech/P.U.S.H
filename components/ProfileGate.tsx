@@ -1,22 +1,35 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import ProfileForm from "@/components/ProfileForm";
 import { getUniversities } from "@/lib/data";
 import { isProfileComplete } from "@/lib/profile";
+import { authFetch } from "@/lib/authFetch";
 import type { University } from "@/lib/types";
 
-// نافذة إجبارية تظهر لكل مستخدم مسجّل لم يُكمل بياناته (حسابات جديدة وقديمة).
-// لا يوجد زر إغلاق ولا يُغلق بالنقر خارجها ولا بزر Escape، والصفحة خلفها معطّلة بالكامل (inert).
-// الحماية الفعلية تتكرر في الـ API (rejectIfProfileIncomplete) ولا تعتمد على هذه النافذة وحدها.
+// نافذة تظهر **مرة واحدة فقط** لكل حساب لم يُكمل بياناته (يُسجَّل أول عرض في profiles.profile_prompted_at).
+// أثناء عرضها تعطّل الصفحة خلفها (inert)، ولا تظهر بعد ذلك عند كل دخول؛ ومن لم يكملها يكملها من «حسابي».
+// الحماية الفعلية تبقى في الـ API (rejectIfProfileIncomplete): لا مساهمات ولا رفع قبل اكتمال البيانات.
 export default function ProfileGate() {
   const { user, profile, loading, signOut } = useAuth();
   const [universities, setUniversities] = useState<University[] | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
-  const needsProfile = !loading && !!user && !!profile && !isProfileComplete(profile);
+  const [dismissed, setDismissed] = useState(false);
+  const promptedRef = useRef(false);
+
+  // تظهر فقط إن كانت البيانات ناقصة ولم تُعرض لهذا الحساب من قبل
+  const needsProfile =
+    !loading && !!user && !!profile && !isProfileComplete(profile) && !profile.profile_prompted_at && !dismissed;
+
+  // نسجّل العرض الأول في السيرفر فورًا (حتى لو أُغلق المتصفح)، فلا تتكرر النافذة لاحقًا
+  useEffect(() => {
+    if (!needsProfile || promptedRef.current) return;
+    promptedRef.current = true;
+    authFetch("/api/profile/prompted", { method: "POST" }).catch(() => {});
+  }, [needsProfile]);
 
   useEffect(() => {
     if (!needsProfile) return;
@@ -78,7 +91,7 @@ export default function ProfileGate() {
           أكمل بياناتك للمتابعة
         </h2>
         <p className="mt-3 text-sm leading-7 text-ink/60">
-          جميع الحقول التالية مطلوبة، ولا يمكن استخدام الحساب قبل تعبئتها. ستبقى بياناتك خاصة ولا تظهر للزوار،
+          جميع الحقول التالية مطلوبة لإرسال المساهمات ورفع الملفات، ولن تظهر هذه النافذة مرة أخرى (يمكنك الإكمال لاحقًا من صفحة حسابي). ستبقى بياناتك خاصة ولا تظهر للزوار،
           ويطّلع عليها مسؤولو المنصة فقط.
         </p>
 
@@ -117,13 +130,22 @@ export default function ProfileGate() {
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={logout}
-          className="mt-5 w-full rounded-2xl border border-olive/10 px-5 py-3 text-sm font-bold text-ink/60 hover:bg-olive/5"
-        >
-          تسجيل الخروج
-        </button>
+        <div className="mt-5 flex gap-2">
+          <button
+            type="button"
+            onClick={() => setDismissed(true)}
+            className="flex-1 rounded-2xl border border-olive/10 px-5 py-3 text-sm font-bold text-ink/60 hover:bg-olive/5"
+          >
+            لاحقًا (من صفحة حسابي)
+          </button>
+          <button
+            type="button"
+            onClick={logout}
+            className="flex-1 rounded-2xl border border-olive/10 px-5 py-3 text-sm font-bold text-ink/60 hover:bg-olive/5"
+          >
+            تسجيل الخروج
+          </button>
+        </div>
       </div>
     </div>
   );

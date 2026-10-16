@@ -18,6 +18,8 @@ export interface UserProfile {
   university_id: string | null;
   /** الجامعة التي يديرها «مسؤول الجامعة» (uni_admin) — null لبقية الأدوار. */
   managed_university_id: string | null;
+  /** وقت أول عرض لنافذة إكمال البيانات (تظهر مرة واحدة فقط لكل حساب). */
+  profile_prompted_at: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -45,7 +47,7 @@ export async function getRequestUser(req: NextRequest) {
 
   const { data: profile } = await supabaseAdmin
     .from("profiles")
-    .select("id,email,full_name,avatar_url,role,phone,whatsapp,university_id,managed_university_id")
+    .select("id,email,full_name,avatar_url,role,phone,whatsapp,university_id,managed_university_id,profile_prompted_at")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -82,6 +84,7 @@ export async function getRequestUser(req: NextRequest) {
       whatsapp: profile?.whatsapp ?? null,
       university_id: profile?.university_id ?? null,
       managed_university_id: role === "uni_admin" ? profile?.managed_university_id ?? null : null,
+      profile_prompted_at: profile?.profile_prompted_at ?? null,
     } satisfies UserProfile,
   };
 }
@@ -95,7 +98,7 @@ export function rejectIfProfileIncomplete(profile: UserProfile): NextResponse | 
   if (isProfileComplete(profile)) return null;
   return NextResponse.json(
     {
-      error: "يجب إكمال بياناتك الشخصية أولًا (الاسم، رقم الهاتف، رقم الواتساب، الجامعة).",
+      error: "يجب إكمال بياناتك الشخصية أولًا (الاسم، رقم الهاتف، رقم الواتساب، الجامعة) من صفحة «حسابي».",
       code: "PROFILE_INCOMPLETE",
     },
     { status: 403 }
