@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireRole } from "@/lib/auth";
+import { requireStaff, getCourseUniversityId, forbiddenOutOfScope } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
 import { extractYoutubeId } from "@/lib/youtube";
 import { validateLink, validateMaterialInput } from "@/lib/validation";
@@ -36,15 +36,18 @@ function flatten(row: Record<string, unknown>) {
 }
 
 export async function GET(req: NextRequest) {
-  if (!(await requireRole(req, ["admin", "owner"]))) {
+  const actor = await requireStaff(req);
+  if (!actor) {
     return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
   }
+  const scope = actor.scopeUniversityId;
 
   const { searchParams } = new URL(req.url);
   const q = searchParams.get("q")?.trim() ?? "";
   const type = searchParams.get("type") ?? "";
   const featured = searchParams.get("featured") ?? "";
-  const universityId = searchParams.get("university_id") ?? searchParams.get("university") ?? "";
+  // مسؤول الجامعة: نتجاهل أي university_id مُمرَّر ونفرض جامعته
+  const universityId = scope ?? searchParams.get("university_id") ?? searchParams.get("university") ?? "";
   const courseIdParam = searchParams.get("course_id") ?? "";
   const page = Math.max(1, Number(searchParams.get("page") ?? 1));
   const pageSize = Math.min(50, Math.max(5, Number(searchParams.get("pageSize") ?? 12)));
@@ -52,6 +55,9 @@ export async function GET(req: NextRequest) {
 
   let courseIds: string[] | null = null;
   if (courseIdParam) {
+    if (scope && (await getCourseUniversityId(courseIdParam)) !== scope) {
+      return forbiddenOutOfScope();
+    }
     courseIds = [courseIdParam];
   } else if (universityId) {
     const { data: courses } = await supabaseAdmin
@@ -103,8 +109,12 @@ export async function GET(req: NextRequest) {
           .eq("is_featured", true)
       ),
       scoped(supabaseAdmin.from("materials").select("downloads_count")),
-      supabaseAdmin.from("universities").select("id", { count: "exact", head: true }),
-      supabaseAdmin.from("courses").select("id", { count: "exact", head: true }),
+      scope
+        ? supabaseAdmin.from("universities").select("id", { count: "exact", head: true }).eq("id", scope)
+        : supabaseAdmin.from("universities").select("id", { count: "exact", head: true }),
+      scope
+        ? supabaseAdmin.from("courses").select("id", { count: "exact", head: true }).eq("university_id", scope)
+        : supabaseAdmin.from("courses").select("id", { count: "exact", head: true }),
     ]);
 
   if (materialsResult.error) {
@@ -134,12 +144,15 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const actor = await requireRole(req, ["admin", "owner"]);
+  const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
 
   const body = await req.json();
   const { course_id, drive_link, youtube_input, is_featured, is_verified, file_size, mime_type } = body;
   if (!course_id) return NextResponse.json({ error: "المساق مطلوب" }, { status: 400 });
+  if (actor.scopeUniversityId && (await getCourseUniversityId(course_id)) !== actor.scopeUniversityId) {
+    return forbiddenOutOfScope();
+  }
 
   const validated = validateMaterialInput(body);
   if (!validated.valid || !validated.type) {
@@ -208,12 +221,23 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const actor = await requireRole(req, ["admin", "owner"]);
+  const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
 
   const body = await req.json();
   const { id, course_id, drive_link, youtube_input, is_featured, is_verified } = body;
   if (!id || !course_id) return NextResponse.json({ error: "الحقول الأساسية ناقصة" }, { status: 400 });
+  if (actor.scopeUniversityId) {
+    // المادة الحالية والمساق الجديد كلاهما يجب أن يتبعا جامعة مسؤول الجامعة
+    const { data: current } = await supabaseAdmin.from("materials").select("course_id").eq("id", id).maybeSingle();
+    if (
+      !current ||
+      (await getCourseUniversityId(current.course_id)) !== actor.scopeUniversityId ||
+      (await getCourseUniversityId(course_id)) !== actor.scopeUniversityId
+    ) {
+      return forbiddenOutOfScope();
+    }
+  }
 
   const validated = validateMaterialInput(body);
   if (!validated.valid || !validated.type) {
@@ -279,7 +303,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const actor = await requireRole(req, ["admin", "owner"]);
+  const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
 
   const id = new URL(req.url).searchParams.get("id");
@@ -290,6 +314,12 @@ export async function DELETE(req: NextRequest) {
     .select("id,title_ar,course_id,drive_link")
     .eq("id", id)
     .maybeSingle();
+
+  if (actor.scopeUniversityId) {
+    if (!existing || (await getCourseUniversityId(existing.course_id)) !== actor.scopeUniversityId) {
+      return forbiddenOutOfScope();
+    }
+  }
 
   const { error } = await supabaseAdmin.from("materials").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { isProfileComplete } from "@/lib/profile";
+import { getStaffScope, isUserRole, type UserRole } from "@/lib/roles";
 
-export type UserRole = "user" | "admin" | "owner";
+export type { UserRole };
 
 export interface UserProfile {
   id: string;
@@ -15,92 +16,21 @@ export interface UserProfile {
   /** رقم الواتساب بصيغة دولية (E.164) */
   whatsapp: string | null;
   university_id: string | null;
+  /** الجامعة التي يديرها «مسؤول الجامعة» (uni_admin) — null لبقية الأدوار. */
+  managed_university_id: string | null;
   created_at?: string;
   updated_at?: string;
 }
 
-/**
- * يقرأ عناوين البريد الإلكتروني لمالك الموقع من متغير البيئة OWNER_EMAIL
- * (يدعم بريدًا واحدًا أو عدة عناوين مفصولة بفاصلة) بدل تثبيت البريد في الكود المصدري.
- */
-export function getOwnerEmails(envValue = process.env.OWNER_EMAIL): string[] {
-  if (!envValue) return [];
-  return envValue
-    .split(",")
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
-}
-
-export function isConfiguredOwnerEmail(email: string | null | undefined, envValue = process.env.OWNER_EMAIL): boolean {
-  if (!email) return false;
-  const owners = getOwnerEmails(envValue);
-  return owners.includes(email.trim().toLowerCase());
-}
-
-/**
- * يتحقق من قواعد تغيير الأدوار (قابلة للاختبار بمعزل عن قاعدة البيانات).
- */
-export function validateRoleChange(params: {
-  actorId: string;
-  actorRole: UserRole;
-  targetId: string;
-  targetEmail: string | null;
-  targetRole: UserRole;
-  newRole: UserRole;
-  ownerEnv?: string;
-}): { allowed: boolean; error?: string } {
-  const { actorId, actorRole, targetId, targetEmail, targetRole, newRole, ownerEnv } = params;
-
-  if (!["user", "admin", "owner"].includes(newRole)) {
-    return { allowed: false, error: "الصلاحية المطلوبة غير صالحة." };
-  }
-
-  if (isConfiguredOwnerEmail(targetEmail, ownerEnv) && newRole !== "owner") {
-    return { allowed: false, error: "لا يمكن خفض صلاحية مالك الموقع الأساسي." };
-  }
-
-  if (newRole === "owner" && actorRole !== "owner") {
-    return { allowed: false, error: "ترقية مستخدم إلى مالك متاحة للمالك فقط." };
-  }
-
-  if (targetRole === "owner" && actorRole !== "owner") {
-    return { allowed: false, error: "لا يمكن تعديل صلاحيات المالك." };
-  }
-
-  if (targetId === actorId && newRole !== actorRole) {
-    return { allowed: false, error: "لا يمكنك خفض صلاحيتك بنفسك." };
-  }
-
-  return { allowed: true };
-}
-
-/**
- * يتحقق من قواعد حذف حساب مستخدم.
- */
-export function validateUserDeletion(params: {
-  actorId: string;
-  actorRole: UserRole;
-  targetId: string;
-  targetEmail: string | null;
-  targetRole: UserRole;
-  ownerEnv?: string;
-}): { allowed: boolean; error?: string } {
-  const { actorId, actorRole, targetId, targetEmail, targetRole, ownerEnv } = params;
-
-  if (targetRole === "owner" || isConfiguredOwnerEmail(targetEmail, ownerEnv)) {
-    return { allowed: false, error: "لا يمكن حذف مالك الموقع." };
-  }
-
-  if (targetId === actorId) {
-    return { allowed: false, error: "لا يمكنك حذف حسابك بنفسك." };
-  }
-
-  if (targetRole === "admin" && actorRole !== "owner") {
-    return { allowed: false, error: "حذف مسؤول متاح للمالك فقط." };
-  }
-
-  return { allowed: true };
-}
+// دوال القواعد النقية (تغيير الدور/الحذف/مالك الموقع) موجودة في lib/roles.ts لتُختبر وتُستعمل في الواجهة،
+// ونعيد تصديرها هنا للتوافق مع الاستيرادات القديمة.
+export {
+  getOwnerEmails,
+  isConfiguredOwnerEmail,
+  validateRoleChange,
+  validateUserDeletion,
+} from "@/lib/roles";
+import { isConfiguredOwnerEmail } from "@/lib/roles";
 
 export async function getRequestUser(req: NextRequest) {
   const auth = req.headers.get("authorization");
@@ -115,7 +45,7 @@ export async function getRequestUser(req: NextRequest) {
 
   const { data: profile } = await supabaseAdmin
     .from("profiles")
-    .select("id,email,full_name,avatar_url,role,phone,whatsapp,university_id")
+    .select("id,email,full_name,avatar_url,role,phone,whatsapp,university_id,managed_university_id")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -123,7 +53,7 @@ export async function getRequestUser(req: NextRequest) {
   const shouldBeOwner = isConfiguredOwnerEmail(resolvedEmail);
 
   // إذا كان البريد مضبوطًا في OWNER_EMAIL ولم يكن دوره owner بعد، نرقّيه تلقائيًا.
-  let role: UserRole = (profile?.role as UserRole) ?? "user";
+  let role: UserRole = isUserRole(profile?.role) ? profile.role : "user";
   if (shouldBeOwner && role !== "owner") {
     role = "owner";
     await supabaseAdmin
@@ -151,6 +81,7 @@ export async function getRequestUser(req: NextRequest) {
       phone: profile?.phone ?? null,
       whatsapp: profile?.whatsapp ?? null,
       university_id: profile?.university_id ?? null,
+      managed_university_id: role === "uni_admin" ? profile?.managed_university_id ?? null : null,
     } satisfies UserProfile,
   };
 }
@@ -175,4 +106,47 @@ export async function requireRole(req: NextRequest, roles: UserRole[]) {
   const account = await getRequestUser(req);
   if (!account || !roles.includes(account.profile.role)) return null;
   return account;
+}
+
+export type RequestAccount = NonNullable<Awaited<ReturnType<typeof getRequestUser>>>;
+export type StaffAccount = RequestAccount & {
+  /** null = صلاحية على كل الجامعات (مالك/مسؤول عادي). وإلا الجامعة الوحيدة المسموح بها (مسؤول الجامعة). */
+  scopeUniversityId: string | null;
+};
+
+/**
+ * بوابة لوحة الإدارة: تقبل مسؤول الجامعة والمسؤول العادي والمالك، وتُرجع نطاق الجامعة.
+ * مسؤول الجامعة غير المرتبط بجامعة يُرفض (لا نطاق = لا صلاحية).
+ * المسارات التي تخص كل الجامعات فقط تستعمل requireRole(req, ["admin","owner"]) كما كانت.
+ */
+export async function requireStaff(req: NextRequest): Promise<StaffAccount | null> {
+  const account = await getRequestUser(req);
+  if (!account) return null;
+  const scope = getStaffScope(account.profile);
+  if (!scope.allowed) return null;
+  return { ...account, scopeUniversityId: scope.universityId };
+}
+
+/** جامعة المساق (للتحقق من النطاق). */
+export async function getCourseUniversityId(courseId: string | null | undefined): Promise<string | null> {
+  if (!courseId) return null;
+  const { data } = await supabaseAdmin.from("courses").select("university_id").eq("id", courseId).maybeSingle();
+  return data?.university_id ?? null;
+}
+
+/** جامعة المادة عبر مساقها. */
+export async function getMaterialUniversityId(materialId: string | null | undefined): Promise<string | null> {
+  if (!materialId) return null;
+  const { data } = await supabaseAdmin
+    .from("materials")
+    .select("courses:course_id(university_id)")
+    .eq("id", materialId)
+    .maybeSingle();
+  const c = (data as { courses?: { university_id?: string } | { university_id?: string }[] | null } | null)?.courses;
+  const one = Array.isArray(c) ? c[0] : c;
+  return one?.university_id ?? null;
+}
+
+export function forbiddenOutOfScope() {
+  return NextResponse.json({ error: "هذا العنصر خارج نطاق جامعتك." }, { status: 403 });
 }

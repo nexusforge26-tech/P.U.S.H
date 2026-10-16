@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { authFetch } from "@/lib/authFetch";
+import { isStaffRole } from "@/lib/roles";
 
 const KEY = "push_admin_access_token";
 
@@ -37,11 +38,17 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       if (r.ok) {
         const data = await r.json();
         const role = data?.profile?.role;
-        if (role === "admin" || role === "owner") {
+        // مسؤول الجامعة يدخل اللوحة أيضًا، لكن السيرفر يقيّد بياناته بجامعته
+        const scoped = role === "uni_admin" && !data?.profile?.managed_university_id;
+        if (isStaffRole(role) && !scoped) {
           sessionStorage.setItem(KEY, session.access_token);
           setAuthed(true);
         } else {
-          setError("هذا الحساب لا يملك صلاحيات الإدارة.");
+          setError(
+            scoped
+              ? "حسابك مسؤول جامعة لكنه غير مرتبط بجامعة. تواصل مع المالك لتحديد جامعتك."
+              : "هذا الحساب لا يملك صلاحيات الإدارة."
+          );
         }
       } else {
         setError("تعذر التحقق من صلاحيات الحساب.");
@@ -82,7 +89,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
           </p>
           <h1 className="mt-2 font-display text-3xl font-bold text-olive-dark">دخول الإدارة</h1>
           <p className="mt-2 text-sm leading-7 text-ink/50">
-            استخدم حساب Google المصرّح له بصلاحية مسؤول أو مالك.
+            استخدم حساب Google المصرّح له بصلاحية مسؤول جامعة أو مسؤول أو مالك.
           </p>
 
           {error && (

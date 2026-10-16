@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireRole } from "@/lib/auth";
+import { requireStaff } from "@/lib/auth";
 
 export async function GET(req: NextRequest) {
-  if (!(await requireRole(req, ["admin", "owner"]))) {
+  const actor = await requireStaff(req);
+  if (!actor) {
     return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
   }
 
@@ -22,6 +23,11 @@ export async function GET(req: NextRequest) {
     )
     .order("created_at", { ascending: false })
     .range(from, from + pageSize - 1);
+
+  // مسؤول الجامعة يرى سجل جامعته فقط
+  if (actor.scopeUniversityId) {
+    query = query.eq("university_id", actor.scopeUniversityId);
+  }
 
   if (actionFilter) {
     query = query.eq("action", actionFilter);

@@ -9,6 +9,8 @@ import MembersTab from "./components/MembersTab";
 import ActivityLogTab from "./components/ActivityLogTab";
 import ReportsTab from "./components/ReportsTab";
 import { authFetch } from "@/lib/authFetch";
+import { useAuth } from "@/components/AuthProvider";
+import { roleLabel } from "@/lib/roles";
 import { formatBytes } from "@/lib/uploadLimits";
 import type { DriveQuotaInfo } from "@/lib/types";
 
@@ -23,6 +25,8 @@ export default function AdminHome() {
 }
 
 function Dashboard() {
+  const { profile, managedUniversityName } = useAuth();
+  const isScoped = profile?.role === "uni_admin";
   const [tab, setTab] = useState<AdminTabKey>("content");
   const [pending, setPending] = useState({
     total: 0,
@@ -72,6 +76,11 @@ function Dashboard() {
             <div>
               <div className="flex flex-wrap items-center gap-3 text-xs font-black tracking-[.2em] text-gold-light">
                 <span>PUSH · ADMIN</span>
+                {profile && (
+                  <span className="rounded-full bg-white/10 px-3 py-1.5 tracking-normal text-parchment ring-1 ring-white/15">
+                    {roleLabel(profile.role, managedUniversityName)}
+                  </span>
+                )}
                 {pending.total > 0 && (
                   <button
                     onClick={() => setTab("submissions")}
@@ -87,7 +96,9 @@ function Dashboard() {
               </div>
               <h1 className="mt-2 font-display text-4xl font-bold">لوحة الإدارة</h1>
               <p className="mt-2 max-w-2xl text-sm leading-7 text-parchment/65">
-                إدارة المحتوى، مراجعة مساهمات الأعضاء، متابعة البلاغات، والتحكم في صلاحيات الحسابات.
+                {isScoped
+                  ? `إدارة محتوى وأعضاء وطلبات ${managedUniversityName ?? "جامعتك"} فقط.`
+                  : "إدارة المحتوى، مراجعة مساهمات الأعضاء، متابعة البلاغات، والتحكم في صلاحيات الحسابات."}
               </p>
             </div>
 

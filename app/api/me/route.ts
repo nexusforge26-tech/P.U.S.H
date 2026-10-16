@@ -20,7 +20,19 @@ export async function GET(req: NextRequest) {
     unreadNotifications = 0;
   }
 
+  // اسم الجامعة التي يديرها «مسؤول الجامعة» لعرضها في الواجهة
+  let managedUniversityName: string | null = null;
+  if (account.profile.role === "uni_admin" && account.profile.managed_university_id) {
+    const { data: uni } = await supabaseAdmin
+      .from("universities")
+      .select("name_ar")
+      .eq("id", account.profile.managed_university_id)
+      .maybeSingle();
+    managedUniversityName = uni?.name_ar ?? null;
+  }
+
   return NextResponse.json({
+    managedUniversityName,
     user: { id: account.user.id, email: account.user.email ?? null },
     profile: account.profile,
     unreadNotifications,

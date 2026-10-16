@@ -1,16 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireRole } from "@/lib/auth";
+import { requireStaff, getCourseUniversityId, forbiddenOutOfScope } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
 
 
 
 export async function POST(req: NextRequest) {
-  const actor = await requireRole(req, ["admin","owner"]);
+  const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
 
   const body = await req.json();
   const { kind } = body as { kind: "university" | "course" };
+
+  // إضافة جامعة جديدة للمالك والمسؤول العادي فقط
+  if (kind === "university" && actor.scopeUniversityId) {
+    return NextResponse.json({ error: "إضافة الجامعات متاحة للمالك والمسؤول العادي فقط." }, { status: 403 });
+  }
 
   try {
     if (kind === "university") {
@@ -27,6 +32,7 @@ export async function POST(req: NextRequest) {
     if (kind === "course") {
       // رقم/رمز المساق إجباري عند الإضافة حتى تعمل خاصية البحث برقم المساق.
       if (!body.university_id) return NextResponse.json({ error: "الجامعة مطلوبة" }, { status: 400 });
+      if (actor.scopeUniversityId && body.university_id !== actor.scopeUniversityId) return forbiddenOutOfScope();
       if (!String(body.code ?? "").trim()) return NextResponse.json({ error: "رمز المساق إجباري" }, { status: 400 });
       const { data, error } = await supabaseAdmin
         .from("courses")
@@ -45,10 +51,16 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  if (!(await requireRole(req, ["admin","owner"]))) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
+  const actor = await requireStaff(req);
+  if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
+  const scope = actor.scopeUniversityId;
   const [universities, courses] = await Promise.all([
-    supabaseAdmin.from("universities").select("*").order("name_ar"),
-    supabaseAdmin.from("courses").select("*").order("name_ar"),
+    scope
+      ? supabaseAdmin.from("universities").select("*").eq("id", scope).order("name_ar")
+      : supabaseAdmin.from("universities").select("*").order("name_ar"),
+    scope
+      ? supabaseAdmin.from("courses").select("*").eq("university_id", scope).order("name_ar")
+      : supabaseAdmin.from("courses").select("*").order("name_ar"),
   ]);
   return NextResponse.json({
     universities: universities.data ?? [],
@@ -57,10 +69,14 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const actor = await requireRole(req, ["admin","owner"]);
+  const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
   const body = await req.json(); const { kind, id, name_ar, code } = body;
   if (!kind || !id || !name_ar) return NextResponse.json({ error: "بيانات التعديل ناقصة" }, { status: 400 });
+  if (actor.scopeUniversityId) {
+    if (kind === "university") return NextResponse.json({ error: "تعديل الجامعات متاح للمالك والمسؤول العادي فقط." }, { status: 403 });
+    if ((await getCourseUniversityId(id)) !== actor.scopeUniversityId) return forbiddenOutOfScope();
+  }
   const table = kind === "university" ? "universities" : kind === "course" ? "courses" : null;
   if (!table) return NextResponse.json({ error: "kind غير معروف" }, { status: 400 });
   if (kind === "course" && !String(code ?? "").trim()) return NextResponse.json({ error: "رمز المساق إجباري" }, { status: 400 });
@@ -72,14 +88,19 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const actor = await requireRole(req, ["admin","owner"]);
+  const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
   const { searchParams } = new URL(req.url); const id = searchParams.get("id"); const kind = searchParams.get("kind");
+  if (actor.scopeUniversityId) {
+    if (kind === "university") return NextResponse.json({ error: "حذف الجامعات متاح للمالك والمسؤول العادي فقط." }, { status: 403 });
+    if (id && (await getCourseUniversityId(id)) !== actor.scopeUniversityId) return forbiddenOutOfScope();
+  }
+  const deletedCourseUniversityId = kind === "course" && id ? await getCourseUniversityId(id) : null;
   const table = kind === "university" ? "universities" : kind === "course" ? "courses" : null;
   if (!id || !table) return NextResponse.json({ error: "بيانات الحذف ناقصة" }, { status: 400 });
   const { data: existing } = await supabaseAdmin.from(table).select("id,name_ar").eq("id", id).maybeSingle();
   const { error } = await supabaseAdmin.from(table).delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  await logActivity({ actor, action: kind === "university" ? "university_deleted" : "course_deleted", target_type: kind as string, target_id: id, title_ar: existing?.name_ar ?? null, course_id: kind === "course" ? id : null });
+  await logActivity({ actor, action: kind === "university" ? "university_deleted" : "course_deleted", target_type: kind as string, target_id: id, title_ar: existing?.name_ar ?? null, course_id: kind === "course" ? id : null, university_id: kind === "university" ? id : deletedCourseUniversityId });
   return NextResponse.json({ ok: true });
 }

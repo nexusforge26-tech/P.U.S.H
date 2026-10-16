@@ -11,6 +11,8 @@ interface AuthContextValue {
   session: Session | null;
   loading: boolean;
   unreadNotifications: number;
+  /** اسم الجامعة التي يديرها مسؤول الجامعة (إن وُجد) */
+  managedUniversityName: string | null;
   refreshProfile: () => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -21,6 +23,7 @@ const AuthContext = createContext<AuthContextValue>({
   session: null,
   loading: true,
   unreadNotifications: 0,
+  managedUniversityName: null,
   refreshProfile: async () => {},
   signOut: async () => {},
 });
@@ -31,6 +34,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [managedUniversityName, setManagedUniversityName] = useState<string | null>(null);
 
   const loadMe = useCallback(async (activeSession: Session | null) => {
     if (!activeSession?.access_token) {
@@ -50,10 +54,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const data = await res.json();
         setProfile(data.profile ?? null);
         setUnreadNotifications(Number(data.unreadNotifications ?? 0));
+        setManagedUniversityName(data.managedUniversityName ?? null);
       } else {
         const { data: p } = await supabase
           .from("profiles")
-          .select("id,email,full_name,avatar_url,role,phone,whatsapp,university_id")
+          .select("id,email,full_name,avatar_url,role,phone,whatsapp,university_id,managed_university_id")
           .eq("id", activeSession.user.id)
           .maybeSingle();
         setProfile((p as UserProfile | null) ?? null);
@@ -110,6 +115,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         session,
         loading,
         unreadNotifications,
+        managedUniversityName,
         refreshProfile,
         signOut,
       }}

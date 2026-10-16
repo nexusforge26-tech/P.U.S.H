@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireRole } from "@/lib/auth";
+import { requireStaff, getMaterialUniversityId, forbiddenOutOfScope } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
 
 export async function GET(req: NextRequest) {
-  const actor = await requireRole(req, ["admin", "owner"]);
+  const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
 
   const status = new URL(req.url).searchParams.get("status") ?? "open";
@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
     let query = supabaseAdmin
       .from("material_reports")
       .select(
-        "id,material_id,user_id,reporter_email,reason,details,status,resolved_by,resolved_at,created_at,materials:material_id(title_ar,drive_link,youtube_id,courses:course_id(name_ar))"
+        "id,material_id,user_id,reporter_email,reason,details,status,resolved_by,resolved_at,created_at,materials:material_id(title_ar,drive_link,youtube_id,courses:course_id(name_ar,university_id))"
       )
       .order("created_at", { ascending: false });
 
@@ -24,12 +24,20 @@ export async function GET(req: NextRequest) {
     const { data, error } = await query;
     if (error) return NextResponse.json({ reports: [] });
 
-    const reports = (data ?? []).map((row: Record<string, unknown>) => {
+    // مسؤول الجامعة: بلاغات مواد جامعته فقط
+    const visible = actor.scopeUniversityId
+      ? (data ?? []).filter((row: Record<string, unknown>) => {
+          const m = row.materials as { courses?: { university_id?: string } } | null;
+          return m?.courses?.university_id === actor.scopeUniversityId;
+        })
+      : data ?? [];
+
+    const reports = visible.map((row: Record<string, unknown>) => {
       const mat = row.materials as {
         title_ar?: string;
         drive_link?: string;
         youtube_id?: string;
-        courses?: { name_ar?: string };
+        courses?: { name_ar?: string; university_id?: string };
       } | null;
       return {
         ...row,
@@ -45,13 +53,24 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const actor = await requireRole(req, ["admin", "owner"]);
+  const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
 
   const body = await req.json();
   const { id, status } = body as { id?: string; status?: "resolved" | "dismissed" };
   if (!id || !status || !["resolved", "dismissed"].includes(status)) {
     return NextResponse.json({ error: "بيانات غير صالحة" }, { status: 400 });
+  }
+
+  if (actor.scopeUniversityId) {
+    const { data: rep } = await supabaseAdmin
+      .from("material_reports")
+      .select("material_id")
+      .eq("id", id)
+      .maybeSingle();
+    if (!rep) return NextResponse.json({ error: "البلاغ غير موجود" }, { status: 404 });
+    const uni = await getMaterialUniversityId(rep.material_id);
+    if (uni !== actor.scopeUniversityId) return forbiddenOutOfScope();
   }
 
   const { data, error } = await supabaseAdmin

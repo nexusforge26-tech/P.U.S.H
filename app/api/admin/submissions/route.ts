@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireRole } from "@/lib/auth";
+import { requireStaff, getCourseUniversityId, type StaffAccount } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
 import { createUserNotification } from "@/lib/notifications";
 import { deleteDriveFileByLink } from "@/lib/googleDrive";
@@ -10,13 +10,13 @@ import { validateLink } from "@/lib/validation";
 const select = `id,user_id,submitter_name,submitter_email,kind,course_id,target_material_id,title_ar,description_ar,type,academic_year,semester,drive_link,youtube_id,file_size,mime_type,page_count,status,admin_note,reviewed_by,reviewed_at,created_at,
   suggested_course_name,suggested_course_code,suggested_university_id,
   profiles:user_id(email,full_name),
-  courses:course_id(name_ar,code,universities:university_id(name_ar)),
+  courses:course_id(name_ar,code,university_id,universities:university_id(name_ar)),
   suggested_universities:suggested_university_id(name_ar)`;
 
 const selectFallback = `id,user_id,kind,course_id,title_ar,description_ar,type,academic_year,semester,drive_link,youtube_id,status,admin_note,reviewed_by,reviewed_at,created_at,
   suggested_course_name,suggested_course_code,suggested_university_id,
   profiles:user_id(email,full_name),
-  courses:course_id(name_ar,code,universities:university_id(name_ar)),
+  courses:course_id(name_ar,code,university_id,universities:university_id(name_ar)),
   suggested_universities:suggested_university_id(name_ar)`;
 
 function flatten(row: Record<string, unknown>) {
@@ -24,6 +24,7 @@ function flatten(row: Record<string, unknown>) {
   const course = row.courses as {
     name_ar?: string;
     code?: string;
+    university_id?: string;
     universities?: { name_ar?: string };
   } | null;
   const suggestedUni = row.suggested_universities as { name_ar?: string } | null;
@@ -35,6 +36,10 @@ function flatten(row: Record<string, unknown>) {
     user_name: profile?.full_name ?? (row.submitter_name as string) ?? "",
     course_name: isCourse ? (row.suggested_course_name as string) ?? "" : course?.name_ar ?? "",
     course_code: isCourse ? (row.suggested_course_code as string) ?? "" : course?.code ?? "",
+    // جامعة الطلب: للمساق المقترح هي الجامعة المقترح إضافته إليها، وللمواد جامعة مساقها
+    university_id: isCourse
+      ? (row.suggested_university_id as string | null) ?? null
+      : course?.university_id ?? null,
     university_name: isCourse
       ? suggestedUni?.name_ar ?? ""
       : course?.universities?.name_ar ?? "",
@@ -42,7 +47,7 @@ function flatten(row: Record<string, unknown>) {
 }
 
 export async function GET(req: NextRequest) {
-  const actor = await requireRole(req, ["admin", "owner"]);
+  const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
 
   const status = new URL(req.url).searchParams.get("status") ?? "pending";
@@ -59,7 +64,14 @@ export async function GET(req: NextRequest) {
     data = fallback.data;
   }
 
-  const items = (data ?? []).map((r) => flatten(r as unknown as Record<string, unknown>));
+  let items = (data ?? []).map((r) => flatten(r as unknown as Record<string, unknown>));
+
+  // مسؤول الجامعة تصله فقط طلبات جامعته (فلترة على السيرفر)
+  if (actor.scopeUniversityId) {
+    items = items.filter(
+      (x: Record<string, unknown>) => x.university_id === actor.scopeUniversityId
+    );
+  }
 
   // كشف تلقائي للتكرار: فحص ما إذا كانت هناك مادة بنفس العنوان (بعد التطبيع العربي) في المساق نفسه
   const pendingCourseIds = Array.from(
@@ -120,10 +132,33 @@ async function processSingleSubmission(params: {
     semester?: string | null;
     is_verified?: boolean;
   };
-  actor: NonNullable<Awaited<ReturnType<typeof requireRole>>>;
+  actor: StaffAccount;
 }): Promise<{ ok: boolean; status: number; error?: string; data?: unknown }> {
   const { id, action, admin_note, overrides, actor } = params;
   const now = new Date().toISOString();
+
+  // 0) فحص النطاق قبل أي تعديل: مسؤول الجامعة لا يراجع إلا طلبات جامعته،
+  //    ولا يستطيع نقل مادة إلى مساق جامعة أخرى عبر overrides.
+  if (actor.scopeUniversityId) {
+    const { data: pre } = await supabaseAdmin
+      .from("submissions")
+      .select("id,kind,course_id,suggested_university_id")
+      .eq("id", id)
+      .maybeSingle();
+    if (!pre) return { ok: false, status: 404, error: "المساهمة غير موجودة" };
+
+    const submissionUni =
+      pre.kind === "course" ? pre.suggested_university_id : await getCourseUniversityId(pre.course_id);
+    if (submissionUni !== actor.scopeUniversityId) {
+      return { ok: false, status: 403, error: "هذه المساهمة تتبع جامعة أخرى خارج نطاقك." };
+    }
+    if (overrides?.course_id) {
+      const overrideUni = await getCourseUniversityId(overrides.course_id);
+      if (overrideUni !== actor.scopeUniversityId) {
+        return { ok: false, status: 403, error: "المساق المختار يتبع جامعة أخرى خارج نطاقك." };
+      }
+    }
+  }
 
   // 1) حجز ذرّي (Atomic Lock): نحدّث الحالة بشرط أن تكون 'pending' حاليًا لمنع الازدواجية إذا ضغط مسؤولان معًا
   const { data: claimed, error: claimError } = await supabaseAdmin
@@ -179,6 +214,7 @@ async function processSingleSubmission(params: {
         target_id: newCourse.id,
         title_ar: newCourse.name_ar,
         course_id: newCourse.id,
+        university_id: newCourse.university_id,
       });
 
       await createUserNotification({
@@ -324,6 +360,7 @@ async function processSingleSubmission(params: {
       target_id: claimed.id,
       title_ar: itemTitle,
       course_id: claimed.course_id,
+      university_id: claimed.kind === "course" ? claimed.suggested_university_id : undefined,
     });
 
     await createUserNotification({
@@ -338,7 +375,7 @@ async function processSingleSubmission(params: {
 }
 
 export async function PATCH(req: NextRequest) {
-  const actor = await requireRole(req, ["admin", "owner"]);
+  const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
 
   const body = await req.json();

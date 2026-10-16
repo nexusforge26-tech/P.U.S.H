@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireRole } from "@/lib/auth";
+import { requireStaff, forbiddenOutOfScope } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
 import { createUserNotification } from "@/lib/notifications";
 import { matchesArabicSearch } from "@/lib/arabic";
@@ -30,16 +30,18 @@ function flatten(row: Record<string, unknown>) {
 }
 
 export async function GET(req: NextRequest) {
-  const actor = await requireRole(req, ["admin", "owner"]);
+  const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
 
   const status = new URL(req.url).searchParams.get("status") ?? "pending";
 
   const runSelect = async (sel: string) => {
-    const q = supabaseAdmin
+    let q = supabaseAdmin
       .from("doctor_submissions")
       .select(sel)
       .order("created_at", { ascending: false });
+    // مسؤول الجامعة: طلبات دكاترة جامعته فقط
+    if (actor.scopeUniversityId) q = q.eq("university_id", actor.scopeUniversityId);
     return status === "all" ? await q : await q.eq("status", status);
   };
 
@@ -91,7 +93,7 @@ async function syncDoctorCoursesJoinTable(
 }
 
 export async function PATCH(req: NextRequest) {
-  const actor = await requireRole(req, ["admin", "owner"]);
+  const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
 
   const body = await req.json();
@@ -101,6 +103,25 @@ export async function PATCH(req: NextRequest) {
   }
 
   const now = new Date().toISOString();
+
+  // فحص النطاق قبل الحجز: الطلب نفسه + الدكتور المستهدف في حال التعديل يجب أن يتبعا جامعة مسؤول الجامعة
+  if (actor.scopeUniversityId) {
+    const { data: pre } = await supabaseAdmin
+      .from("doctor_submissions")
+      .select("id,university_id,kind,target_doctor_id")
+      .eq("id", id)
+      .maybeSingle();
+    if (!pre) return NextResponse.json({ error: "المشاركة غير موجودة" }, { status: 404 });
+    if (pre.university_id !== actor.scopeUniversityId) return forbiddenOutOfScope();
+    if (pre.kind === "edit" && pre.target_doctor_id) {
+      const { data: doc } = await supabaseAdmin
+        .from("doctors")
+        .select("university_id")
+        .eq("id", pre.target_doctor_id)
+        .maybeSingle();
+      if (doc && doc.university_id !== actor.scopeUniversityId) return forbiddenOutOfScope();
+    }
+  }
 
   // حجز ذرّي (Atomic Lock): نحدّث الحالة بشرط status='pending' لمنع الازدواجية
   const { data: submission, error: claimError } = await supabaseAdmin
@@ -166,6 +187,7 @@ export async function PATCH(req: NextRequest) {
         target_type: "doctor",
         target_id: updated.id,
         title_ar: `تعديل: ${updated.full_name}`,
+        university_id: updated.university_id,
       });
       await logActivity({
         actor,
@@ -173,6 +195,7 @@ export async function PATCH(req: NextRequest) {
         target_type: "doctor",
         target_id: updated.id,
         title_ar: updated.full_name,
+        university_id: updated.university_id,
       });
     } else {
       const { data: created, error: insertError } = await supabaseAdmin
@@ -194,6 +217,7 @@ export async function PATCH(req: NextRequest) {
         target_type: "doctor",
         target_id: created.id,
         title_ar: created.full_name,
+        university_id: created.university_id,
       });
       await logActivity({
         actor,
@@ -201,6 +225,7 @@ export async function PATCH(req: NextRequest) {
         target_type: "doctor",
         target_id: created.id,
         title_ar: created.full_name,
+        university_id: created.university_id,
       });
     }
 
@@ -217,6 +242,7 @@ export async function PATCH(req: NextRequest) {
       target_type: "doctor_submission",
       target_id: submission.id,
       title_ar: submission.full_name,
+      university_id: submission.university_id,
     });
 
     await createUserNotification({

@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
+import { isStaffRole, roleLabel as roleLabelFor } from "@/lib/roles";
 
 export default function SettingsMenu() {
   const [open, setOpen] = useState(false);
-  const { user, profile, unreadNotifications, signOut } = useAuth();
+  const { user, profile, unreadNotifications, managedUniversityName, signOut } = useAuth();
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -26,9 +27,8 @@ export default function SettingsMenu() {
 
   if (!user) return null;
 
-  const isStaff = profile?.role === "admin" || profile?.role === "owner";
-  const roleLabel =
-    profile?.role === "owner" ? "المالك" : profile?.role === "admin" ? "مسؤول" : "مستخدم عادي";
+  const isStaff = isStaffRole(profile?.role);
+  const roleLabel = roleLabelFor(profile?.role ?? "user", managedUniversityName);
 
   return (
     <div ref={ref} className="relative">

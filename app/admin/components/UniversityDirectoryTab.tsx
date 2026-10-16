@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Course, University } from "@/lib/types";
 import { Modal } from "../AdminShell";
 import { authFetch } from "@/lib/authFetch";
+import { useAuth } from "@/components/AuthProvider";
 import { INPUT_CLASS } from "@/lib/styles";
 
 interface TaxonomyData {
@@ -27,6 +28,10 @@ export default function UniversityDirectoryTab() {
   const [deletingUni, setDeletingUni] = useState<University | null>(null);
   const [confirmName, setConfirmName] = useState("");
   const [delBusy, setDelBusy] = useState(false);
+
+  const { profile } = useAuth();
+  // مسؤول الجامعة لا يضيف/يعدّل/يحذف الجامعات نفسها، بل يدير مساقاتها ومحتواها فقط
+  const canManageUniversities = profile?.role === "admin" || profile?.role === "owner";
 
   async function load() {
     const r = await authFetch("/api/admin/taxonomy");
@@ -125,12 +130,14 @@ export default function UniversityDirectoryTab() {
               className={`${INPUT_CLASS} pr-11`}
             />
           </div>
-          <button
-            onClick={() => setShowAdd(true)}
-            className="rounded-2xl bg-clay px-5 py-3 font-black text-parchment hover:bg-clay-dark"
-          >
-            + إضافة جامعة
-          </button>
+          {canManageUniversities && (
+            <button
+              onClick={() => setShowAdd(true)}
+              className="rounded-2xl bg-clay px-5 py-3 font-black text-parchment hover:bg-clay-dark"
+            >
+              + إضافة جامعة
+            </button>
+          )}
         </div>
         {message && (
           <div className="mt-4 rounded-2xl bg-olive/5 px-4 py-3 text-sm font-bold text-olive-dark">
@@ -153,18 +160,22 @@ export default function UniversityDirectoryTab() {
                   ⌂
                 </span>
                 <span className="flex items-center gap-3">
-                  <button
-                    onClick={(e) => openEdit(u, e)}
-                    className="text-xs font-black text-ink/40 opacity-0 transition hover:text-olive-dark group-hover:opacity-100"
-                  >
-                    تعديل
-                  </button>
-                  <button
-                    onClick={(e) => openDeleteModal(u, e)}
-                    className="text-xs font-black text-clay-dark opacity-0 transition hover:text-clay group-hover:opacity-100"
-                  >
-                    حذف
-                  </button>
+                  {canManageUniversities && (
+                    <>
+                      <button
+                        onClick={(e) => openEdit(u, e)}
+                        className="text-xs font-black text-ink/40 opacity-0 transition hover:text-olive-dark group-hover:opacity-100"
+                      >
+                        تعديل
+                      </button>
+                      <button
+                        onClick={(e) => openDeleteModal(u, e)}
+                        className="text-xs font-black text-clay-dark opacity-0 transition hover:text-clay group-hover:opacity-100"
+                      >
+                        حذف
+                      </button>
+                    </>
+                  )}
                   <span className="text-xs font-black text-clay opacity-0 transition group-hover:opacity-100">
                     فتح الإدارة ←
                   </span>

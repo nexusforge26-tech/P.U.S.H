@@ -4,23 +4,21 @@ import { useCallback, useEffect, useState } from "react";
 import { authFetch } from "@/lib/authFetch";
 import { INPUT_CLASS, SELECT_CLASS } from "@/lib/styles";
 import { whatsappLink } from "@/lib/phone";
+import { canManageTarget, roleLabel, type UserRole } from "@/lib/roles";
 
 interface MemberProfile {
   id: string;
   email: string;
   full_name: string | null;
-  role: "user" | "admin" | "owner";
+  role: UserRole;
   phone: string | null;
   whatsapp: string | null;
+  university_id: string | null;
+  managed_university_id: string | null;
   universities?: { name_ar?: string } | null;
+  managed_university?: { name_ar?: string } | null;
   created_at: string;
 }
-
-const ROLE_LABELS: Record<string, string> = {
-  user: "مستخدم عادي",
-  admin: "مسؤول",
-  owner: "مالك",
-};
 
 const PAGE_SIZE = 25;
 
@@ -30,7 +28,8 @@ export default function MembersTab() {
   const [page, setPage] = useState(1);
   const [q, setQ] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
-  const [actor, setActor] = useState("user");
+  const [actor, setActor] = useState<UserRole>("user");
+  const [scoped, setScoped] = useState(false);
   const [busy, setBusy] = useState("");
 
   const load = useCallback(async () => {
@@ -46,7 +45,8 @@ export default function MembersTab() {
       const d = await r.json();
       setUsers(d.users || []);
       setCount(d.count ?? (d.users || []).length);
-      setActor(d.actorRole || "user");
+      setActor((d.actorRole || "user") as UserRole);
+      setScoped(Boolean(d.scopeUniversityId));
     }
   }, [page, q, roleFilter]);
 
@@ -54,11 +54,21 @@ export default function MembersTab() {
     load();
   }, [load]);
 
-  async function changeRole(id: string, role: string) {
+  async function changeRole(u: MemberProfile, role: string) {
+    if (role === u.role) return;
+    if (role === "uni_admin") {
+      if (!u.university_id) {
+        alert("لا يمكن تعيينه مسؤول جامعة قبل أن يختار جامعته في ملفه الشخصي.");
+        return;
+      }
+      const uniName = u.universities?.name_ar || "جامعته";
+      if (!confirm(`تعيين «${u.full_name || u.email}» مسؤولًا عن (${uniName}) فقط؟`)) return;
+    }
+    const id = u.id;
     setBusy(id);
     const r = await authFetch("/api/admin/users", {
       method: "PATCH",
-      body: JSON.stringify({ id, role }),
+      body: JSON.stringify({ id, role, university_id: role === "uni_admin" ? u.university_id : undefined }),
     });
     const d = await r.json().catch(() => ({}));
     setBusy("");
@@ -100,7 +110,9 @@ export default function MembersTab() {
             الأعضاء والصلاحيات
           </h2>
           <p className="mt-1 text-sm text-ink/45">
-            الصلاحية الافتراضية لكل حساب جديد: مستخدم عادي.
+            {scoped
+              ? "تظهر لك أعضاء جامعتك فقط، ولا يمكنك تعديل صلاحيات أي عضو أو مسؤول."
+              : "الصلاحية الافتراضية لكل حساب جديد: مستخدم عادي."}
           </p>
         </div>
         <span className="rounded-full bg-olive/7 px-3 py-1 text-xs font-black text-olive-dark">
@@ -129,6 +141,7 @@ export default function MembersTab() {
           <option value="">كل الصلاحيات</option>
           <option value="owner">المالك</option>
           <option value="admin">المسؤولون</option>
+          <option value="uni_admin">مسؤولو الجامعات</option>
           <option value="user">المستخدمون العاديون</option>
         </select>
       </div>
@@ -181,30 +194,35 @@ export default function MembersTab() {
                 </td>
                 <td className="p-3">
                   <span className="rounded-full bg-olive/7 px-3 py-1 text-xs font-black">
-                    {ROLE_LABELS[u.role] || u.role}
+                    {roleLabel(u.role, u.managed_university?.name_ar)}
                   </span>
                 </td>
                 <td className="p-3 text-xs text-ink/45">
                   {new Date(u.created_at).toLocaleDateString("ar")}
                 </td>
                 <td className="p-3">
-                  {u.role === "owner" && actor !== "owner" ? (
-                    <span className="text-xs font-bold text-ink/35">محمي</span>
+                  {!canManageTarget(actor, u.role) ? (
+                    <span className="text-xs font-bold text-ink/35">
+                      {u.role === "owner" ? "محمي" : "—"}
+                    </span>
                   ) : (
                     <select
                       disabled={busy === u.id}
                       value={u.role}
-                      onChange={(e) => changeRole(u.id, e.target.value)}
+                      onChange={(e) => changeRole(u, e.target.value)}
                       className="rounded-xl border border-olive/10 bg-[#fbfaf7] px-3 py-2 text-xs font-bold"
                     >
                       {actor === "owner" && <option value="owner">مالك</option>}
                       <option value="admin">مسؤول</option>
+                      <option value="uni_admin">مسؤول جامعة</option>
                       <option value="user">مستخدم عادي</option>
                     </select>
                   )}
                 </td>
                 <td className="p-3">
-                  {u.role === "owner" || (u.role === "admin" && actor !== "owner") ? (
+                  {u.role === "owner" ||
+                  !canManageTarget(actor, u.role) ||
+                  ((u.role === "admin" || u.role === "uni_admin") && actor !== "owner") ? (
                     <span className="text-xs text-ink/30">—</span>
                   ) : (
                     <button

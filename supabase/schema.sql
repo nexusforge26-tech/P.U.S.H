@@ -124,14 +124,21 @@ create table if not exists profiles (
   email text,
   full_name text,
   avatar_url text,
-  role text not null default 'user' check (role in ('user','admin','owner')),
+  role text not null default 'user' check (role in ('user','uni_admin','admin','owner')),
   -- بيانات إلزامية يُطلب إكمالها بعد أول تسجيل دخول (أرقام بصيغة دولية E.164)
   phone text check (phone is null or phone ~ '^\+[1-9][0-9]{7,14}$'),
   whatsapp text check (whatsapp is null or whatsapp ~ '^\+[1-9][0-9]{7,14}$'),
   university_id uuid references universities(id) on delete set null,
+  -- الجامعة التي يديرها «مسؤول الجامعة» (uni_admin)؛ مستقلة عن university_id حتى لا يوسّع الطالب نطاقه بتغيير جامعته
+  managed_university_id uuid references universities(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+-- للقواعد الموجودة مسبقًا (الجدول لا يُعاد إنشاؤه): الدور الجديد + العمود
+alter table profiles drop constraint if exists profiles_role_check;
+alter table profiles add constraint profiles_role_check check (role in ('user','uni_admin','admin','owner'));
+alter table profiles add column if not exists managed_university_id uuid references universities(id) on delete set null;
+create index if not exists idx_profiles_managed_university on profiles(managed_university_id);
 create index if not exists idx_profiles_role on profiles(role);
 create index if not exists idx_profiles_email on profiles(email);
 create index if not exists idx_profiles_university on profiles(university_id);
@@ -260,8 +267,11 @@ create table if not exists activity_log (
   target_id uuid,
   title_ar text,
   course_id uuid references courses(id) on delete set null,
+  university_id uuid references universities(id) on delete set null,
   created_at timestamptz not null default now()
 );
+alter table activity_log add column if not exists university_id uuid references universities(id) on delete set null;
+create index if not exists idx_activity_log_university on activity_log(university_id, created_at desc);
 create index if not exists idx_activity_log_created on activity_log(created_at desc);
 create index if not exists idx_activity_log_actor on activity_log(actor_id);
 create index if not exists idx_activity_log_action on activity_log(action);

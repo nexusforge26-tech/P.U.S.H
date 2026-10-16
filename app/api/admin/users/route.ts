@@ -1,14 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
-  requireRole,
+  requireStaff,
   validateRoleChange,
   validateUserDeletion,
   type UserRole,
 } from "@/lib/auth";
+import { isUserRole } from "@/lib/roles";
+import { logActivity } from "@/lib/activity";
+
+const PROFILE_COLUMNS =
+  "id,email,full_name,avatar_url,role,phone,whatsapp,university_id,managed_university_id,created_at,updated_at";
 
 export async function GET(req: NextRequest) {
-  const actor = await requireRole(req, ["admin", "owner"]);
+  const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
 
   const { searchParams } = new URL(req.url);
@@ -21,13 +26,18 @@ export async function GET(req: NextRequest) {
   let query = supabaseAdmin
     .from("profiles")
     .select(
-      "id,email,full_name,avatar_url,role,phone,whatsapp,university_id,created_at,updated_at,universities:university_id(name_ar)",
+      `${PROFILE_COLUMNS},universities:university_id(name_ar),managed_university:managed_university_id(name_ar)`,
       { count: "exact" }
     )
     .order("created_at", { ascending: false })
     .range(from, from + pageSize - 1);
 
-  if (roleFilter && ["user", "admin", "owner"].includes(roleFilter)) {
+  // مسؤول الجامعة يرى أعضاء جامعته فقط (الفلترة هنا على السيرفر ولا يمكن تجاوزها من الواجهة).
+  if (actor.scopeUniversityId) {
+    query = query.eq("university_id", actor.scopeUniversityId);
+  }
+
+  if (roleFilter && isUserRole(roleFilter)) {
     query = query.eq("role", roleFilter);
   }
   if (q) {
@@ -48,21 +58,26 @@ export async function GET(req: NextRequest) {
     page,
     pageSize,
     actorRole: actor.profile.role,
+    scopeUniversityId: actor.scopeUniversityId,
   });
 }
 
 export async function PATCH(req: NextRequest) {
-  const actor = await requireRole(req, ["admin", "owner"]);
+  const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
 
-  const { id, role } = (await req.json()) as { id?: string; role?: UserRole };
+  const { id, role, university_id } = (await req.json()) as {
+    id?: string;
+    role?: UserRole;
+    university_id?: string;
+  };
   if (!id || !role) {
     return NextResponse.json({ error: "بيانات غير صالحة" }, { status: 400 });
   }
 
   const { data: target } = await supabaseAdmin
     .from("profiles")
-    .select("id,email,role")
+    .select("id,email,role,university_id,full_name")
     .eq("id", id)
     .maybeSingle();
 
@@ -81,19 +96,56 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: check.error }, { status: 403 });
   }
 
+  // ترقية إلى «مسؤول جامعة»: الجامعة المُدارة = الجامعة المحددة صراحةً، وإلا جامعة العضو نفسه.
+  let managedUniversityId: string | null = null;
+  let managedUniversityName: string | null = null;
+  if (role === "uni_admin") {
+    managedUniversityId = university_id || target.university_id || null;
+    if (!managedUniversityId) {
+      return NextResponse.json(
+        { error: "لا يمكن تعيين مسؤول جامعة بلا جامعة. اطلب من العضو اختيار جامعته أولًا أو حدّد الجامعة." },
+        { status: 400 }
+      );
+    }
+    const { data: uni } = await supabaseAdmin
+      .from("universities")
+      .select("id,name_ar")
+      .eq("id", managedUniversityId)
+      .maybeSingle();
+    if (!uni) return NextResponse.json({ error: "الجامعة المحددة غير موجودة" }, { status: 400 });
+    managedUniversityName = uni.name_ar;
+  }
+
   const { data, error } = await supabaseAdmin
     .from("profiles")
-    .update({ role, updated_at: new Date().toISOString() })
+    .update({
+      role,
+      // أي دور غير مسؤول الجامعة يفقد ارتباطه بجامعة الإدارة
+      managed_university_id: managedUniversityId,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", id)
-    .select("id,email,full_name,avatar_url,role,phone,whatsapp,university_id,created_at,updated_at")
+    .select(PROFILE_COLUMNS)
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  await logActivity({
+    actor,
+    action: "role_changed",
+    target_type: "user",
+    target_id: id,
+    title_ar: `${target.full_name || target.email || "عضو"}: ${target.role} ← ${role}${
+      managedUniversityName ? ` (${managedUniversityName})` : ""
+    }`,
+    university_id: managedUniversityId ?? target.university_id ?? null,
+  });
+
   return NextResponse.json({ user: data });
 }
 
 export async function DELETE(req: NextRequest) {
-  const actor = await requireRole(req, ["admin", "owner"]);
+  const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
 
   const id = new URL(req.url).searchParams.get("id");

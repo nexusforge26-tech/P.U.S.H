@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
+import { roleLabel as roleLabelFor } from "@/lib/roles";
 import DriveFileInput from "@/components/DriveFileInput";
 import ProfileEditor from "@/components/ProfileEditor";
 import {
@@ -30,7 +31,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export default function AccountPage() {
-  const { user, profile, loading, refreshProfile, signOut } = useAuth();
+  const { user, profile, loading, managedUniversityName, refreshProfile, signOut } = useAuth();
   const [items, setItems] = useState<Submission[]>([]);
   const [myMaterials, setMyMaterials] = useState<(Material & { editable: boolean })[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -106,8 +107,7 @@ export default function AccountPage() {
 
   if (loading || !user) return <main className="min-h-[70vh] bg-[#f7f5ef]" />;
 
-  const roleLabel =
-    profile?.role === "owner" ? "المالك" : profile?.role === "admin" ? "المسؤول" : "مستخدم عادي";
+  const roleLabel = roleLabelFor(profile?.role ?? "user", managedUniversityName);
   const unreadCount = notifications.filter((n) => !n.is_read).length;
 
   return (

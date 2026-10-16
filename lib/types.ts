@@ -232,6 +232,7 @@ export const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   doctor_added: "أضاف دكتورًا جديدًا",
   doctor_updated: "عدّل بيانات دكتور",
   report_resolved: "عالج بلاغًا على مادة",
+  role_changed: "غيّر صلاحية حساب",
 };
 
 // نافذة السماح لصاحب المادة بتعديل/حذف ما نشره بنفسه، بالساعات.

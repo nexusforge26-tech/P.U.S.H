@@ -37,6 +37,7 @@ export default function ProfileGate() {
   // استثناء تشغيلي: إن لم تكن هناك أي جامعة مضافة بعد، لا يمكن لأحد إكمال النموذج،
   // فلا نحبس المسؤول/المالك خارج لوحة الإدارة التي يضيف منها الجامعات.
   const isStaff = profile?.role === "admin" || profile?.role === "owner";
+  // (مسؤول الجامعة مرتبط بجامعة موجودة أصلًا، فلا يحتاج هذا الاستثناء)
   const noUniversitiesYet = universities !== null && universities.length === 0;
   const blocking = needsProfile && !(isStaff && noUniversitiesYet);
 
