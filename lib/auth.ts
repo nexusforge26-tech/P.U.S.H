@@ -1,5 +1,6 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { isProfileComplete } from "@/lib/profile";
 
 export type UserRole = "user" | "admin" | "owner";
 
@@ -9,6 +10,11 @@ export interface UserProfile {
   full_name: string | null;
   avatar_url: string | null;
   role: UserRole;
+  /** رقم الهاتف بصيغة دولية (E.164) */
+  phone: string | null;
+  /** رقم الواتساب بصيغة دولية (E.164) */
+  whatsapp: string | null;
+  university_id: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -109,7 +115,7 @@ export async function getRequestUser(req: NextRequest) {
 
   const { data: profile } = await supabaseAdmin
     .from("profiles")
-    .select("id,email,full_name,avatar_url,role")
+    .select("id,email,full_name,avatar_url,role,phone,whatsapp,university_id")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -142,8 +148,27 @@ export async function getRequestUser(req: NextRequest) {
       full_name: profile?.full_name ?? user.user_metadata?.full_name ?? user.user_metadata?.name ?? null,
       avatar_url: profile?.avatar_url ?? user.user_metadata?.avatar_url ?? null,
       role,
+      phone: profile?.phone ?? null,
+      whatsapp: profile?.whatsapp ?? null,
+      university_id: profile?.university_id ?? null,
     } satisfies UserProfile,
   };
+}
+
+/**
+ * حماية من جهة السيرفر: العمليات التي تتطلب حسابًا مكتملًا (إرسال مساهمات، رفع ملفات، تعديل موادي...)
+ * ترفض أي حساب لم يُكمل بياناته (الاسم، الهاتف، الواتساب، الجامعة)، حتى لو تجاوز المستخدم نافذة المتصفح.
+ * تُرجع null إذا كان الحساب مكتملًا، وإلا ترجع استجابة 403 جاهزة.
+ */
+export function rejectIfProfileIncomplete(profile: UserProfile): NextResponse | null {
+  if (isProfileComplete(profile)) return null;
+  return NextResponse.json(
+    {
+      error: "يجب إكمال بياناتك الشخصية أولًا (الاسم، رقم الهاتف، رقم الواتساب، الجامعة).",
+      code: "PROFILE_INCOMPLETE",
+    },
+    { status: 403 }
+  );
 }
 
 export async function requireRole(req: NextRequest, roles: UserRole[]) {

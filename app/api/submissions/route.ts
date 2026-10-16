@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getRequestUser } from "@/lib/auth";
+import { getRequestUser, rejectIfProfileIncomplete } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
 import { extractYoutubeId } from "@/lib/youtube";
 import { validateLink, validateMaterialInput } from "@/lib/validation";
@@ -25,6 +25,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const account = await getRequestUser(req);
   if (!account) return NextResponse.json({ error: "يجب تسجيل الدخول أولًا" }, { status: 401 });
+  const incomplete = rejectIfProfileIncomplete(account.profile);
+  if (incomplete) return incomplete;
 
   // التحقق من الحد الأقصى للمساهمات المعلقة لكل مستخدم لمنع الإغراق (Rate Limit)
   const { count: pendingCount } = await supabaseAdmin

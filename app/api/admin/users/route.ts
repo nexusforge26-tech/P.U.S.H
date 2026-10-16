@@ -20,7 +20,10 @@ export async function GET(req: NextRequest) {
 
   let query = supabaseAdmin
     .from("profiles")
-    .select("id,email,full_name,avatar_url,role,created_at,updated_at", { count: "exact" })
+    .select(
+      "id,email,full_name,avatar_url,role,phone,whatsapp,university_id,created_at,updated_at,universities:university_id(name_ar)",
+      { count: "exact" }
+    )
     .order("created_at", { ascending: false })
     .range(from, from + pageSize - 1);
 
@@ -30,7 +33,9 @@ export async function GET(req: NextRequest) {
   if (q) {
     const safe = q.replace(/[,()%*]/g, " ").trim();
     if (safe) {
-      query = query.or(`full_name.ilike.%${safe}%,email.ilike.%${safe}%`);
+      query = query.or(
+        `full_name.ilike.%${safe}%,email.ilike.%${safe}%,phone.ilike.%${safe}%,whatsapp.ilike.%${safe}%`
+      );
     }
   }
 
@@ -80,7 +85,7 @@ export async function PATCH(req: NextRequest) {
     .from("profiles")
     .update({ role, updated_at: new Date().toISOString() })
     .eq("id", id)
-    .select("id,email,full_name,avatar_url,role,created_at,updated_at")
+    .select("id,email,full_name,avatar_url,role,phone,whatsapp,university_id,created_at,updated_at")
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

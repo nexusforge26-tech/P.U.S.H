@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import DriveFileInput from "@/components/DriveFileInput";
+import ProfileEditor from "@/components/ProfileEditor";
 import {
   ACADEMIC_YEAR_OPTIONS,
   MATERIAL_TYPE_LABELS,
@@ -145,6 +146,9 @@ export default function AccountPage() {
             {noticeBanner}
           </div>
         )}
+
+        {/* بياناتي: الاسم والهاتف والواتساب والجامعة */}
+        <ProfileEditor />
 
         {/* قسم الإشعارات */}
         {notifications.length > 0 && (

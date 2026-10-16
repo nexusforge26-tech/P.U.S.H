@@ -53,7 +53,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         const { data: p } = await supabase
           .from("profiles")
-          .select("id,email,full_name,avatar_url,role")
+          .select("id,email,full_name,avatar_url,role,phone,whatsapp,university_id")
           .eq("id", activeSession.user.id)
           .maybeSingle();
         setProfile((p as UserProfile | null) ?? null);

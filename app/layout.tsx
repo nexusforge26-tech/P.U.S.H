@@ -4,6 +4,7 @@ import "./globals.css";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { AuthProvider } from "@/components/AuthProvider";
+import ProfileGate from "@/components/ProfileGate";
 
 const amiri = Amiri({
   subsets: ["arabic"],
@@ -47,9 +48,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="ar" dir="rtl" className={`${amiri.variable} ${tajawal.variable}`}>
       <body className="font-body">
         <AuthProvider>
-          <Header />
-          <main className="min-h-[70vh]">{children}</main>
-          <Footer />
+          <div id="app-shell">
+            <Header />
+            <main className="min-h-[70vh]">{children}</main>
+            <Footer />
+          </div>
+          <ProfileGate />
         </AuthProvider>
       </body>
     </html>

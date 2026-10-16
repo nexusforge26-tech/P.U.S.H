@@ -3,12 +3,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { authFetch } from "@/lib/authFetch";
 import { INPUT_CLASS, SELECT_CLASS } from "@/lib/styles";
+import { whatsappLink } from "@/lib/phone";
 
 interface MemberProfile {
   id: string;
   email: string;
   full_name: string | null;
   role: "user" | "admin" | "owner";
+  phone: string | null;
+  whatsapp: string | null;
+  universities?: { name_ar?: string } | null;
   created_at: string;
 }
 
@@ -111,7 +115,7 @@ export default function MembersTab() {
             setQ(e.target.value);
             setPage(1);
           }}
-          placeholder="ابحث بالاسم أو البريد الإلكتروني..."
+          placeholder="ابحث بالاسم أو البريد أو رقم الهاتف..."
           className={INPUT_CLASS}
         />
         <select
@@ -130,11 +134,14 @@ export default function MembersTab() {
       </div>
 
       <div className="mt-5 overflow-x-auto">
-        <table className="w-full min-w-[800px] text-right">
+        <table className="w-full min-w-[1100px] text-right">
           <thead>
             <tr className="border-b border-olive/10 text-xs font-black text-ink/40">
               <th className="p-3">العضو</th>
               <th className="p-3">البريد</th>
+              <th className="p-3">الجامعة</th>
+              <th className="p-3">الهاتف</th>
+              <th className="p-3">واتساب</th>
               <th className="p-3">الصلاحية</th>
               <th className="p-3">تاريخ التسجيل</th>
               <th className="p-3">تغيير الصلاحية</th>
@@ -146,6 +153,32 @@ export default function MembersTab() {
               <tr key={u.id} className="border-b border-olive/5">
                 <td className="p-3 font-bold">{u.full_name || "بدون اسم"}</td>
                 <td className="p-3 text-sm">{u.email}</td>
+                <td className="p-3 text-sm">
+                  {u.universities?.name_ar || (
+                    <span className="text-xs font-bold text-clay-dark">لم تُحدد</span>
+                  )}
+                </td>
+                <td className="p-3 text-sm" dir="ltr">
+                  {u.phone ? (
+                    <span className="text-right">{u.phone}</span>
+                  ) : (
+                    <span className="text-xs font-bold text-clay-dark">لم يُدخل</span>
+                  )}
+                </td>
+                <td className="p-3 text-sm" dir="ltr">
+                  {whatsappLink(u.whatsapp) ? (
+                    <a
+                      href={whatsappLink(u.whatsapp) as string}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-bold text-olive-light hover:underline"
+                    >
+                      {u.whatsapp}
+                    </a>
+                  ) : (
+                    <span className="text-xs font-bold text-clay-dark">لم يُدخل</span>
+                  )}
+                </td>
                 <td className="p-3">
                   <span className="rounded-full bg-olive/7 px-3 py-1 text-xs font-black">
                     {ROLE_LABELS[u.role] || u.role}

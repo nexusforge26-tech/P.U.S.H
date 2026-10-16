@@ -125,11 +125,16 @@ create table if not exists profiles (
   full_name text,
   avatar_url text,
   role text not null default 'user' check (role in ('user','admin','owner')),
+  -- بيانات إلزامية يُطلب إكمالها بعد أول تسجيل دخول (أرقام بصيغة دولية E.164)
+  phone text check (phone is null or phone ~ '^\+[1-9][0-9]{7,14}$'),
+  whatsapp text check (whatsapp is null or whatsapp ~ '^\+[1-9][0-9]{7,14}$'),
+  university_id uuid references universities(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 create index if not exists idx_profiles_role on profiles(role);
 create index if not exists idx_profiles_email on profiles(email);
+create index if not exists idx_profiles_university on profiles(university_id);
 
 create or replace function public.handle_new_user()
 returns trigger

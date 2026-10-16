@@ -17,6 +17,7 @@
 > - قاعدة قائمة: نفّذ ملفات الترحيل في `supabase/migrations/` بالترتيب:
 >   1. `supabase/migrations/2026-10-13-remove-faculties.sql` (إذا كانت القاعدة قديمة وتحتوي على جدول `faculties`)
 >   2. `supabase/migrations/2026-10-15-security-and-features.sql` (لتحديثات الأمان، الفهارس، تطبيع البحث العربي، الإشعارات، والبلاغات)
+>   3. `supabase/migrations/2026-10-16-profile-contact-info.sql` (حقول الهاتف والواتساب والجامعة الإلزامية في الملف الشخصي)
 
 لتعيين بريد المالك الأساسي في قاعدة البيانات أيضًا (اختياري بجانب متغير البيئة `OWNER_EMAIL`):
 

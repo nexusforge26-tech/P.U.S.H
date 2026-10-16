@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getRequestUser } from "@/lib/auth";
+import { getRequestUser, rejectIfProfileIncomplete } from "@/lib/auth";
 import { initiateDriveResumableUpload } from "@/lib/googleDrive";
 import {
   MAX_PENDING_SUBMISSIONS_PER_USER,
@@ -22,6 +22,8 @@ function requestOrigin(req: NextRequest): string | null {
 export async function POST(req: NextRequest) {
   const account = await getRequestUser(req);
   if (!account) return NextResponse.json({ error: "يجب تسجيل الدخول أولًا" }, { status: 401 });
+  const incomplete = rejectIfProfileIncomplete(account.profile);
+  if (incomplete) return incomplete;
 
   try {
     // منع المستخدم الذي تجاوز حد المساهمات المعلقة من رفع ملفات إضافية تستهلك مساحة Drive

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getRequestUser } from "@/lib/auth";
+import { getRequestUser, rejectIfProfileIncomplete } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
 import { SELF_EDIT_WINDOW_HOURS } from "@/lib/types";
 import { extractYoutubeId } from "@/lib/youtube";
@@ -67,6 +67,8 @@ async function loadOwned(id: string, userId: string) {
 export async function PATCH(req: NextRequest) {
   const account = await getRequestUser(req);
   if (!account) return NextResponse.json({ error: "يجب تسجيل الدخول أولًا" }, { status: 401 });
+  const incomplete = rejectIfProfileIncomplete(account.profile);
+  if (incomplete) return incomplete;
 
   const body = await req.json();
   const { id, drive_link, youtube_input } = body;
@@ -194,6 +196,8 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const account = await getRequestUser(req);
   if (!account) return NextResponse.json({ error: "يجب تسجيل الدخول أولًا" }, { status: 401 });
+  const incomplete = rejectIfProfileIncomplete(account.profile);
+  if (incomplete) return incomplete;
 
   const id = new URL(req.url).searchParams.get("id");
   if (!id) return NextResponse.json({ error: "معرّف المادة مطلوب" }, { status: 400 });

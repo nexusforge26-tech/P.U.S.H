@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getRequestUser } from "@/lib/auth";
+import { getRequestUser, rejectIfProfileIncomplete } from "@/lib/auth";
 import { finalizeDriveUpload } from "@/lib/googleDrive";
 
 export const runtime = "nodejs";
@@ -7,6 +7,8 @@ export const runtime = "nodejs";
 export async function POST(req: NextRequest) {
   const account = await getRequestUser(req);
   if (!account) return NextResponse.json({ error: "يجب تسجيل الدخول أولًا" }, { status: 401 });
+  const incomplete = rejectIfProfileIncomplete(account.profile);
+  if (incomplete) return incomplete;
 
   try {
     const body = await req.json();
