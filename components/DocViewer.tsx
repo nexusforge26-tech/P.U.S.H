@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import type { Material } from "@/lib/types";
-import { extractDriveFileId } from "@/lib/validation";
 
 interface DocViewerProps {
   material: Material;
@@ -12,28 +11,48 @@ interface DocViewerProps {
 export default function DocViewer({ material, className = "" }: DocViewerProps) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [resolvedFileId, setResolvedFileId] = useState<string | null>(() =>
-    extractDriveFileId(material.drive_link || "")
-  );
+  const [metaResolved, setMetaResolved] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [streamUrl, setStreamUrl] = useState<string | null>(null);
+  const [useDirectStream, setUseDirectStream] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // إذا كان الرابط المخزّن هو مجلد فرعي في Drive، نستعلم من السيرفر عن معرّف الملف الفعلي لعرضه داخل المعاينة المدمجة
+  // نستعلم دائماً من السيرفر (/api/dl/[id]?mode=meta) للتحقق من وجود الملف،
+  // وفك روابط المجلدات الفرعية، وتطبيق صلاحية القراءة العامة (ensureFilePublicReader) قبل عرض المعاينة
   useEffect(() => {
-    const directId = extractDriveFileId(material.drive_link || "");
-    if (directId) {
-      setResolvedFileId(directId);
-      return;
-    }
     if (!material.id) return;
 
     let cancelled = false;
+    setIsLoading(true);
+    setMetaResolved(false);
+    setErrorMsg(null);
+
     fetch(`/api/dl/${encodeURIComponent(material.id)}?mode=meta`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (!cancelled && data?.fileId) {
-          setResolvedFileId(data.fileId);
+      .then(async (r) => {
+        const data = await r.json().catch(() => null);
+        if (cancelled) return;
+
+        if (r.ok && data?.accessible && data?.previewUrl) {
+          setPreviewUrl(data.previewUrl);
+          setStreamUrl(data.streamUrl || null);
+          setErrorMsg(null);
+        } else {
+          setPreviewUrl(null);
+          setStreamUrl(null);
+          setErrorMsg(
+            data?.error ||
+              "تعذر الوصول إلى هذا الملف؛ قد يكون الرابط الأصلي مقفلاً أو محذوفاً من المصدر."
+          );
+          setIsLoading(false);
         }
+        setMetaResolved(true);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (cancelled) return;
+        setErrorMsg("تعذر الاتصال بالسيرفر لتجهيز معاينة الملف.");
+        setIsLoading(false);
+        setMetaResolved(true);
+      });
 
     return () => {
       cancelled = true;
@@ -51,10 +70,7 @@ export default function DocViewer({ material, className = "" }: DocViewerProps) 
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isFullscreen]);
 
-  // رابط المعاينة المدمجة داخل الموقع فقط (إما معاينة ملف Drive أو البث المدمج من السيرفر)
-  const previewSrc = resolvedFileId
-    ? `https://drive.google.com/file/d/${encodeURIComponent(resolvedFileId)}/preview`
-    : `/api/dl/${encodeURIComponent(material.id)}?mode=inline`;
+  const activeIframeSrc = useDirectStream && streamUrl ? streamUrl : previewUrl;
 
   return (
     <div
@@ -64,7 +80,7 @@ export default function DocViewer({ material, className = "" }: DocViewerProps) 
           : `flex flex-col rounded-3xl border border-olive/15 bg-white shadow-soft ${className}`
       }`}
     >
-      {/* شريط أدوات المعاينة داخل الموقع فقط (بدون أي زر فتح خارجي أو فتح في Drive) */}
+      {/* شريط أدوات المعاينة داخل الموقع */}
       <div
         className={`flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 sm:px-6 ${
           isFullscreen
@@ -97,6 +113,24 @@ export default function DocViewer({ material, className = "" }: DocViewerProps) 
         </div>
 
         <div className="flex items-center gap-2">
+          {streamUrl && !errorMsg && (
+            <button
+              type="button"
+              onClick={() => {
+                setIsLoading(true);
+                setUseDirectStream((prev) => !prev);
+              }}
+              title="التبديل بين عارض Google Drive والبث المباشر من السيرفر في حال حظر ملفات تعريف الارتباط"
+              className={`flex h-8 items-center gap-1.5 rounded-xl border px-3 text-xs font-bold transition ${
+                isFullscreen
+                  ? "border-white/20 bg-white/10 text-white hover:bg-white/20"
+                  : "border-olive/20 bg-white text-olive-dark hover:bg-olive/5"
+              }`}
+            >
+              <span>{useDirectStream ? "عارض Drive" : "بث مباشر بديل"}</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => setIsFullscreen((prev) => !prev)}
@@ -128,28 +162,48 @@ export default function DocViewer({ material, className = "" }: DocViewerProps) 
         }`}
         style={{ minHeight: isFullscreen ? "calc(100vh - 80px)" : "620px" }}
       >
-        {isLoading && (
+        {isLoading && !errorMsg && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-white/75 backdrop-blur-sm">
             <div className="h-10 w-10 animate-spin rounded-full border-4 border-olive/20 border-t-olive" />
             <p className="text-xs font-bold text-olive-dark">جارٍ تجهيز وعرض الملف...</p>
           </div>
         )}
 
-        {/* حاجز شفاف أعلى زاوية العارض لمنع زر الفتح الخارجي (Pop-out) الداخلي الخاص بـ Google Drive */}
-        <div
-          aria-hidden="true"
-          className=" absolute right-0 top-0 z-20 h-14 w-16"
-          title={material.title_ar}
-        />
+        {errorMsg ? (
+          <div className="flex h-full min-h-[420px] flex-col items-center justify-center p-8 text-center">
+            <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-clay/10 text-2xl text-clay-dark">
+              ⚠️
+            </span>
+            <h4 className="mt-4 font-display text-lg font-bold text-olive-dark">
+              الملف غير متاح للعرض حالياً
+            </h4>
+            <p className="mt-2 max-w-md text-xs leading-relaxed text-ink/65 sm:text-sm">
+              {errorMsg}
+            </p>
+          </div>
+        ) : (
+          metaResolved &&
+          activeIframeSrc && (
+            <>
+              {/* حاجز شفاف أعلى زاوية العارض لمنع زر الفتح الخارجي (Pop-out) الداخلي الخاص بـ Google Drive */}
+              <div
+                aria-hidden="true"
+                className="absolute right-0 top-0 z-20 h-14 w-16"
+                title={material.title_ar}
+              />
 
-        <iframe
-          title={material.title_ar}
-          src={previewSrc}
-          onLoad={() => setIsLoading(false)}
-          className="h-full min-h-[620px] w-full border-0"
-          allow="autoplay; fullscreen"
-          sandbox="allow-scripts allow-same-origin"
-        />
+              <iframe
+                key={activeIframeSrc}
+                title={material.title_ar}
+                src={activeIframeSrc}
+                onLoad={() => setIsLoading(false)}
+                className="h-full min-h-[620px] w-full border-0"
+                allow="autoplay; fullscreen"
+                sandbox="allow-scripts allow-same-origin"
+              />
+            </>
+          )
+        )}
       </div>
     </div>
   );

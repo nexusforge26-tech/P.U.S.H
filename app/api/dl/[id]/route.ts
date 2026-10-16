@@ -68,6 +68,7 @@ export async function GET(
     resolvedMeta = await resolveFileFromDriveFolder(folderId);
     if (resolvedMeta?.id) {
       fileId = resolvedMeta.id;
+      await ensureFilePublicReader(fileId);
       if (materialId) {
         const directViewUrl = `https://drive.google.com/file/d/${fileId}/view`;
         Promise.resolve(
@@ -82,34 +83,43 @@ export async function GET(
         ).catch(() => {});
       }
     }
+  } else if (fileId) {
+    resolvedMeta = await getDriveFileMetadata(fileId);
+    if (resolvedMeta?.id) {
+      await ensureFilePublicReader(fileId);
+    }
   }
 
   if (mode === "meta") {
+    const accessible = Boolean(fileId && resolvedMeta?.id);
+    const isPresentation =
+      resolvedMeta?.mimeType === "application/vnd.google-apps.presentation";
+    const previewUrl = accessible
+      ? isPresentation
+        ? `https://docs.google.com/presentation/d/${encodeURIComponent(fileId!)}/embed`
+        : `https://drive.google.com/file/d/${encodeURIComponent(fileId!)}/preview`
+      : null;
+
     return NextResponse.json({
-      fileId: fileId || null,
-      previewUrl: fileId ? `https://drive.google.com/file/d/${fileId}/preview` : null,
+      fileId: accessible ? fileId : null,
+      accessible,
+      mimeType: resolvedMeta?.mimeType || null,
+      previewUrl,
+      streamUrl: accessible ? `/api/dl/${encodeURIComponent(materialId || fileId!)}?mode=stream` : null,
+      error: accessible
+        ? null
+        : "الملف المرتبط بهذه المادة غير متاح أو مقفل من المصدر الخارجي.",
     });
   }
 
-  if (mode === "inline" && fileId) {
-    return NextResponse.redirect(
-      `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/preview`,
-      302
-    );
-  }
-
-  if (!fileId) {
-    if (driveLink.startsWith("https://") && !driveLink.includes("/drive/folders/")) {
+  if (!fileId || !resolvedMeta?.id) {
+    if (driveLink.startsWith("https://") && !driveLink.includes("/drive/folders/") && !driveLink.includes("drive.google.com")) {
       return NextResponse.redirect(driveLink, 302);
     }
     return NextResponse.json(
-      { error: "تعذر العثور على ملف قابل للتنزيل المباشر" },
+      { error: "تعذر العثور على ملف متاح للمعاينة أو التنزيل المباشر" },
       { status: 404 }
     );
-  }
-
-  if (!resolvedMeta) {
-    resolvedMeta = await getDriveFileMetadata(fileId);
   }
 
   const sizeBytes = Number(resolvedMeta?.size ?? 0);
@@ -119,6 +129,47 @@ export async function GET(
   const downloadFileName = cleanTitle.toLowerCase().endsWith(ext.toLowerCase())
     ? cleanTitle
     : `${cleanTitle}${ext}`;
+
+  if (mode === "stream") {
+    if (sizeBytes === 0 || sizeBytes <= DIRECT_STREAM_LIMIT_BYTES) {
+      const streamRes = await fetchDriveFileStream(fileId);
+      if (streamRes && streamRes.body) {
+        const mimeType =
+          resolvedMeta?.mimeType ||
+          streamRes.headers.get("content-type") ||
+          "application/pdf";
+
+        const headers = new Headers();
+        headers.set("Content-Type", mimeType);
+        headers.set(
+          "Content-Disposition",
+          `inline; filename="preview${ext}"; filename*=UTF-8''${encodeURIComponent(
+            downloadFileName
+          )}`
+        );
+        if (sizeBytes > 0) {
+          headers.set("Content-Length", String(sizeBytes));
+        }
+        headers.set("Cache-Control", "public, max-age=3600");
+
+        return new NextResponse(streamRes.body, {
+          status: 200,
+          headers,
+        });
+      }
+    }
+    return NextResponse.redirect(
+      `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/preview`,
+      302
+    );
+  }
+
+  if (mode === "inline") {
+    return NextResponse.redirect(
+      `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/preview`,
+      302
+    );
+  }
 
   if (sizeBytes === 0 || sizeBytes <= DIRECT_STREAM_LIMIT_BYTES) {
     const streamRes = await fetchDriveFileStream(fileId);

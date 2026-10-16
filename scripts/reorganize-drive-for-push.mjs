@@ -3,10 +3,10 @@
  *
  * ماذا يفعل هذا السكربت؟
  * 1) يتصل بمجلد المستودع في Google Drive (GOOGLE_DRIVE_FOLDER_ID).
- * 2) يمر على المواد المخزنة في Supabase التي يشير رابطها (drive_link) إلى مجلد فرعي (/drive/folders/...).
- * 3) يستخرج الملف الفعلي (PDF / DOCX / PPTX / ZIP) من داخل مجلد المادة الفرعي،
+ * 2) يمر على جميع المواد المخزنة في Supabase التي يشير رابطها (drive_link) إلى مجلد فرعي (/drive/folders/...) عبر التصفح الكامل (Pagination).
+ * 3) يستخرج الملف الفعلي (PDF / DOCX / PPTX / ZIP) من داخل مجلد المادة الفرعي (متجاهلًا المجلدات الفرعية وملف معلومات المادة.md)،
  *    ويعيد تسميته بالصيغة القياسية للمنصة: [رمز_المساق]_[عنوان_المادة].ext
- * 4) يمنح الملف صلاحية العرض العام (anyone reader) ويحدّث حقل drive_link في Supabase
+ * 4) يمنح الملف صلاحية العرض العام (anyone reader) فعليًا عبر Drive Permissions API ويحدّث حقل drive_link في Supabase
  *    بالرابط المباشر للملف (https://drive.google.com/file/d/{fileId}/view) مع حجم الملف ونوعه (file_size, mime_type).
  *
  * طريقة التشغيل:
@@ -34,7 +34,11 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
   auth: { persistSession: false },
 });
 
+let cachedToken = "";
+let tokenExpiresAt = 0;
+
 async function getDriveAccessToken() {
+  if (cachedToken && Date.now() < tokenExpiresAt - 60_000) return cachedToken;
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -49,7 +53,9 @@ async function getDriveAccessToken() {
   if (!res.ok || !data.access_token) {
     throw new Error(`فشل الحصول على توكن Google Drive: ${JSON.stringify(data)}`);
   }
-  return data.access_token;
+  cachedToken = data.access_token;
+  tokenExpiresAt = Date.now() + (data.expires_in ?? 3500) * 1000;
+  return cachedToken;
 }
 
 function extractFolderId(url) {
@@ -58,25 +64,43 @@ function extractFolderId(url) {
   return m ? m[1] : null;
 }
 
+async function fetchAllFolderMaterials() {
+  const all = [];
+  const pageSize = 1000;
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from("materials")
+      .select("id, title_ar, drive_link, courses:course_id(code, name_ar)")
+      .ilike("drive_link", "%/drive/folders/%")
+      .range(from, from + pageSize - 1);
+
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    all.push(...data);
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+  return all;
+}
+
 async function run() {
-  const token = await getDriveAccessToken();
-  const headers = { Authorization: `Bearer ${token}` };
-
-  const { data: materials, error } = await supabase
-    .from("materials")
-    .select("id, title_ar, drive_link, courses:course_id(code, name_ar)")
-    .ilike("drive_link", "%/drive/folders/%")
-    .limit(1000);
-
-  if (error) throw error;
+  const materials = await fetchAllFolderMaterials();
   console.log(`تم العثور على ${materials.length} مادة مرتبطة بمجلدات فرعية لمعالجتها...`);
 
   let updatedCount = 0;
+  let emptyCount = 0;
+
   for (const mat of materials) {
     const folderId = extractFolderId(mat.drive_link);
     if (!folderId) continue;
 
-    const q = encodeURIComponent(`'${folderId}' in parents and trashed = false and mimeType != 'text/markdown'`);
+    const token = await getDriveAccessToken();
+    const headers = { Authorization: `Bearer ${token}` };
+
+    const q = encodeURIComponent(
+      `'${folderId}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder' and mimeType != 'text/markdown' and name != 'معلومات المادة.md'`
+    );
     const listRes = await fetch(
       `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,mimeType,size,webViewLink)&supportsAllDrives=true&includeItemsFromAllDrives=true`,
       { headers }
@@ -84,7 +108,10 @@ async function run() {
     if (!listRes.ok) continue;
     const listData = await listRes.json();
     const actualFile = (listData.files || [])[0];
-    if (!actualFile) continue;
+    if (!actualFile) {
+      emptyCount++;
+      continue;
+    }
 
     // إعادة تسمية الملف بشكل منظم حسب المساق والعنوان
     const ext = actualFile.name.includes(".") ? "." + actualFile.name.split(".").pop() : "";
@@ -97,6 +124,16 @@ async function run() {
       headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify({ name: newFileName }),
     });
+
+    // منح صلاحية القراءة العامة (anyone reader) لضمان عمل المعاينة المدمجة داخل الموقع دون طلب إذن وصول
+    await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(actualFile.id)}/permissions?supportsAllDrives=true`,
+      {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ role: "reader", type: "anyone" }),
+      }
+    ).catch(() => {});
 
     const directLink = `https://drive.google.com/file/d/${actualFile.id}/view`;
     await supabase
@@ -114,7 +151,9 @@ async function run() {
     }
   }
 
-  console.log(`اكتمل التنظيم! تم ربط ${updatedCount} ملف برابط مباشر.`);
+  console.log(
+    `اكتمل التنظيم! تم ربط ${updatedCount} ملف برابط مباشر وصلاحية قراءة عامة (وتم تخطي ${emptyCount} مجلد فارغ).`
+  );
 }
 
 run().catch((err) => {
