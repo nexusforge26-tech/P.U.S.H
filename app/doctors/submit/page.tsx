@@ -112,7 +112,6 @@ function SubmitDoctorForm() {
   function resetForm() {
     setFullName("");
     setEmail("");
-    setPhone("");
     setOffice("");
     setUniversityId("");
     setCourses([""]);
