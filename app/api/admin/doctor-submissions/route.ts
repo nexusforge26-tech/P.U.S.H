@@ -4,6 +4,7 @@ import { requireStaff, forbiddenOutOfScope } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
 import { createUserNotification } from "@/lib/notifications";
 import { matchesArabicSearch } from "@/lib/arabic";
+import { badRequest, cleanText, isUuid, safeJson, serverError } from "@/lib/security";
 
 const select = `id,user_id,submitter_name,submitter_email,kind,target_doctor_id,full_name,email,phone,office_location,university_id,courses,status,admin_note,reviewed_by,reviewed_at,created_at,
   profiles:user_id(email,full_name),
@@ -33,7 +34,8 @@ export async function GET(req: NextRequest) {
   const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
 
-  const status = new URL(req.url).searchParams.get("status") ?? "pending";
+  const rawStatus = new URL(req.url).searchParams.get("status") ?? "pending";
+  const status = ["pending", "approved", "rejected", "all"].includes(rawStatus) ? rawStatus : "pending";
 
   const runSelect = async (sel: string) => {
     let q = supabaseAdmin
@@ -48,7 +50,7 @@ export async function GET(req: NextRequest) {
   let { data, error } = await runSelect(select);
   if (error) {
     const fallback = await runSelect(selectFallback);
-    if (fallback.error) return NextResponse.json({ error: fallback.error.message }, { status: 500 });
+    if (fallback.error) return serverError(fallback.error);
     data = fallback.data;
   }
 
@@ -96,9 +98,11 @@ export async function PATCH(req: NextRequest) {
   const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
 
-  const body = await req.json();
-  const { id, action, admin_note } = body;
-  if (!id || !["approve", "reject"].includes(action)) {
+  const body = await safeJson<Record<string, any>>(req, 20_000);
+  if (!body) return badRequest();
+  const { id, action } = body;
+  const admin_note = typeof body.admin_note === "string" ? cleanText(body.admin_note, 500) : undefined;
+  if (!isUuid(id) || !["approve", "reject"].includes(action)) {
     return NextResponse.json({ error: "طلب غير صالح" }, { status: 400 });
   }
 
@@ -137,7 +141,7 @@ export async function PATCH(req: NextRequest) {
     .select("*")
     .maybeSingle();
 
-  if (claimError) return NextResponse.json({ error: claimError.message }, { status: 500 });
+  if (claimError) return serverError(claimError);
   if (!submission) {
     return NextResponse.json(
       { error: "تمت مراجعة هذه المشاركة مسبقًا أو تتم مراجعتها الآن" },
@@ -176,7 +180,7 @@ export async function PATCH(req: NextRequest) {
 
       if (updateError) {
         await rollbackClaim();
-        return NextResponse.json({ error: updateError.message }, { status: 500 });
+        return serverError(updateError, "تعذر تحديث بيانات الدكتور (قد يكون البريد مستخدمًا لدكتور آخر).");
       }
 
       await syncDoctorCoursesJoinTable(updated.id, updated.university_id, updated.courses ?? []);
@@ -206,7 +210,7 @@ export async function PATCH(req: NextRequest) {
 
       if (insertError) {
         await rollbackClaim();
-        return NextResponse.json({ error: insertError.message }, { status: 500 });
+        return serverError(insertError, "تعذر إضافة الدكتور (قد يكون مسجّلًا مسبقًا بنفس البريد).");
       }
 
       await syncDoctorCoursesJoinTable(created.id, created.university_id, created.courses ?? []);

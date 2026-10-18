@@ -37,7 +37,7 @@ import { isConfiguredOwnerEmail } from "@/lib/roles";
 export async function getRequestUser(req: NextRequest) {
   const auth = req.headers.get("authorization");
   const token = auth?.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-  if (!token) return null;
+  if (!token || token.length > 4096) return null;
 
   const {
     data: { user },
@@ -51,8 +51,12 @@ export async function getRequestUser(req: NextRequest) {
     .eq("id", user.id)
     .maybeSingle();
 
-  const resolvedEmail = profile?.email ?? user.email ?? null;
-  const shouldBeOwner = isConfiguredOwnerEmail(resolvedEmail);
+  // مصدر الحقيقة للبريد هو حساب المصادقة (auth.users) لا نسخة الملف الشخصي.
+  const resolvedEmail = user.email ?? profile?.email ?? null;
+  // الترقية التلقائية إلى «مالك» تتطلب بريدًا موثّقًا فعلًا؛ وإلا يستطيع أي شخص إنشاء حساب
+  // ببريد المالك (دون إثبات ملكيته) عبر مزوّد لا يتحقق من البريد والحصول على صلاحيات كاملة.
+  const emailVerified = Boolean(user.email_confirmed_at || (user as { confirmed_at?: string }).confirmed_at);
+  const shouldBeOwner = emailVerified && isConfiguredOwnerEmail(resolvedEmail);
 
   // إذا كان البريد مضبوطًا في OWNER_EMAIL ولم يكن دوره owner بعد، نرقّيه تلقائيًا.
   let role: UserRole = isUserRole(profile?.role) ? profile.role : "user";

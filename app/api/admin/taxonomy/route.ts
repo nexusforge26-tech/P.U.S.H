@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireStaff, getCourseUniversityId, forbiddenOutOfScope } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
+import { badRequest, cleanText, isUuid, safeJson, serverError } from "@/lib/security";
 
 
 
@@ -9,7 +10,8 @@ export async function POST(req: NextRequest) {
   const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
 
-  const body = await req.json();
+  const body = await safeJson<Record<string, any>>(req, 20_000);
+  if (!body) return badRequest();
   const { kind } = body as { kind: "university" | "course" };
 
   // إضافة جامعة جديدة للمالك والمسؤول العادي فقط
@@ -19,9 +21,11 @@ export async function POST(req: NextRequest) {
 
   try {
     if (kind === "university") {
+      const universityName = cleanText(body.name_ar, 150);
+      if (!universityName) return badRequest("اسم الجامعة مطلوب");
       const { data, error } = await supabaseAdmin
         .from("universities")
-        .insert({ name_ar: body.name_ar })
+        .insert({ name_ar: universityName })
         .select()
         .single();
       if (error) throw error;
@@ -32,11 +36,15 @@ export async function POST(req: NextRequest) {
     if (kind === "course") {
       // رقم/رمز المساق إجباري عند الإضافة حتى تعمل خاصية البحث برقم المساق.
       if (!body.university_id) return NextResponse.json({ error: "الجامعة مطلوبة" }, { status: 400 });
+      if (!isUuid(body.university_id)) return badRequest("الجامعة غير صالحة");
       if (actor.scopeUniversityId && body.university_id !== actor.scopeUniversityId) return forbiddenOutOfScope();
-      if (!String(body.code ?? "").trim()) return NextResponse.json({ error: "رمز المساق إجباري" }, { status: 400 });
+      const courseName = cleanText(body.name_ar, 150);
+      const courseCode = cleanText(body.code, 30);
+      if (!courseName) return badRequest("اسم المساق مطلوب");
+      if (!courseCode) return NextResponse.json({ error: "رمز المساق إجباري" }, { status: 400 });
       const { data, error } = await supabaseAdmin
         .from("courses")
-        .insert({ name_ar: body.name_ar, code: String(body.code).trim(), university_id: body.university_id })
+        .insert({ name_ar: courseName, code: courseCode, university_id: body.university_id })
         .select()
         .single();
       if (error) throw error;
@@ -46,7 +54,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ error: "kind غير معروف" }, { status: 400 });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message ?? "فشلت العملية" }, { status: 500 });
+    return serverError(err, "فشلت العملية");
   }
 }
 
@@ -71,18 +79,23 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
-  const body = await req.json(); const { kind, id, name_ar, code } = body;
+  const body = await safeJson<Record<string, any>>(req, 20_000);
+  if (!body) return badRequest();
+  const { kind, id } = body;
+  const name_ar = cleanText(body.name_ar, 150);
+  const code = body.code;
   if (!kind || !id || !name_ar) return NextResponse.json({ error: "بيانات التعديل ناقصة" }, { status: 400 });
+  if (!isUuid(id)) return badRequest("المعرّف غير صالح");
   if (actor.scopeUniversityId) {
     if (kind === "university") return NextResponse.json({ error: "تعديل الجامعات متاح للمالك والمسؤول العادي فقط." }, { status: 403 });
     if ((await getCourseUniversityId(id)) !== actor.scopeUniversityId) return forbiddenOutOfScope();
   }
   const table = kind === "university" ? "universities" : kind === "course" ? "courses" : null;
   if (!table) return NextResponse.json({ error: "kind غير معروف" }, { status: 400 });
-  if (kind === "course" && !String(code ?? "").trim()) return NextResponse.json({ error: "رمز المساق إجباري" }, { status: 400 });
-  const payload:any = { name_ar }; if (kind === "course") payload.code = String(code).trim();
+  if (kind === "course" && !cleanText(code, 30)) return NextResponse.json({ error: "رمز المساق إجباري" }, { status: 400 });
+  const payload:any = { name_ar }; if (kind === "course") payload.code = cleanText(code, 30);
   const { data, error } = await supabaseAdmin.from(table).update(payload).eq("id", id).select().single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
   await logActivity({ actor, action: kind === "university" ? "university_updated" : "course_updated", target_type: kind, target_id: id, title_ar: data.name_ar, course_id: kind === "course" ? id : null });
   return NextResponse.json({ data });
 }
@@ -91,6 +104,7 @@ export async function DELETE(req: NextRequest) {
   const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
   const { searchParams } = new URL(req.url); const id = searchParams.get("id"); const kind = searchParams.get("kind");
+  if (id && !isUuid(id)) return badRequest("المعرّف غير صالح");
   if (actor.scopeUniversityId) {
     if (kind === "university") return NextResponse.json({ error: "حذف الجامعات متاح للمالك والمسؤول العادي فقط." }, { status: 403 });
     if (id && (await getCourseUniversityId(id)) !== actor.scopeUniversityId) return forbiddenOutOfScope();
@@ -100,7 +114,7 @@ export async function DELETE(req: NextRequest) {
   if (!id || !table) return NextResponse.json({ error: "بيانات الحذف ناقصة" }, { status: 400 });
   const { data: existing } = await supabaseAdmin.from(table).select("id,name_ar").eq("id", id).maybeSingle();
   const { error } = await supabaseAdmin.from(table).delete().eq("id", id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
   await logActivity({ actor, action: kind === "university" ? "university_deleted" : "course_deleted", target_type: kind as string, target_id: id, title_ar: existing?.name_ar ?? null, course_id: kind === "course" ? id : null, university_id: kind === "university" ? id : deletedCourseUniversityId });
   return NextResponse.json({ ok: true });
 }

@@ -42,7 +42,8 @@ export async function getDriveAccessToken(): Promise<string> {
 
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
-      throw new Error(`تعذر تجديد رمز OAuth لحساب Google Drive (${res.status}): ${errText}`);
+      console.error("Drive OAuth refresh failed:", res.status, errText);
+      throw new Error(`تعذر تجديد رمز OAuth لحساب Google Drive (${res.status})`);
     }
 
     const data = (await res.json()) as { access_token?: string; expires_in?: number };
@@ -95,7 +96,8 @@ export async function getDriveAccessToken(): Promise<string> {
 
   if (!res.ok) {
     const errText = await res.text().catch(() => "");
-    throw new Error(`تعذر مصادقة حساب خدمة Google Drive (${res.status}): ${errText}`);
+    console.error("Drive service-account auth failed:", res.status, errText);
+    throw new Error(`تعذر مصادقة حساب خدمة Google Drive (${res.status})`);
   }
 
   const data = (await res.json()) as { access_token?: string; expires_in?: number };
@@ -174,13 +176,19 @@ export async function resolveFileFromDriveFolder(
   }
 }
 
+// ذاكرة مؤقتة لتفادي إعادة منح الصلاحية (طلب كتابة إلى Drive) عند كل معاينة أو تنزيل لنفس الملف.
+const publicReaderEnsured = new Map<string, number>();
+const PUBLIC_READER_TTL_MS = 6 * 60 * 60 * 1000;
+
 /**
  * يمنح صلاحية القراءة للملف الفردي فقط (وليس المجلد) عند الحاجة لتحويل رابط تنزيل مباشر.
  */
 export async function ensureFilePublicReader(fileId: string): Promise<void> {
+  const last = publicReaderEnsured.get(fileId);
+  if (last && Date.now() - last < PUBLIC_READER_TTL_MS) return;
   try {
     const accessToken = await getDriveAccessToken();
-    await fetch(
+    const res = await fetch(
       `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/permissions?supportsAllDrives=true`,
       {
         method: "POST",
@@ -192,6 +200,10 @@ export async function ensureFilePublicReader(fileId: string): Promise<void> {
         cache: "no-store",
       }
     );
+    if (res.ok) {
+      publicReaderEnsured.set(fileId, Date.now());
+      if (publicReaderEnsured.size > 5000) publicReaderEnsured.clear();
+    }
   } catch {
     // تجاهل
   }
@@ -275,6 +287,9 @@ export async function initiateDriveResumableUpload(
   const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
   if (!folderId) throw new Error("GOOGLE_DRIVE_FOLDER_ID غير مضبوط في متغيرات البيئة");
 
+  // تنظيف اسم الملف من محارف التحكم والمسارات
+  const safeName = fileName.replace(/[\u0000-\u001f\u007f\\/]/g, "_").slice(0, 255);
+
   const headers: Record<string, string> = {
     Authorization: `Bearer ${accessToken}`,
     "Content-Type": "application/json; charset=UTF-8",
@@ -289,7 +304,7 @@ export async function initiateDriveResumableUpload(
       method: "POST",
       headers,
       body: JSON.stringify({
-        name: fileName,
+        name: safeName,
         mimeType: mimeType || "application/octet-stream",
         parents: [folderId],
       }),
@@ -299,9 +314,8 @@ export async function initiateDriveResumableUpload(
 
   if (!response.ok) {
     const message = await response.text().catch(() => "");
-    throw new Error(
-      `تعذر بدء رفع الملف إلى Google Drive (${response.status})${message ? `: ${message}` : ""}`
-    );
+    console.error("Drive resumable init failed:", response.status, message);
+    throw new Error(`تعذر بدء رفع الملف إلى Google Drive (${response.status})`);
   }
 
   const sessionUrl = response.headers.get("location");
@@ -313,14 +327,14 @@ export async function finalizeDriveUpload(
   fileId: string,
   fallbackName = "الملف"
 ): Promise<DriveUploadResult> {
-  if (!fileId) throw new Error("معرّف الملف مفقود");
+  if (!fileId || !/^[A-Za-z0-9_-]{10,128}$/.test(fileId)) throw new Error("معرّف الملف غير صالح");
 
   const accessToken = await getDriveAccessToken();
   const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
   if (!folderId) throw new Error("GOOGLE_DRIVE_FOLDER_ID غير مضبوط في متغيرات البيئة");
 
   const getRes = await fetch(
-    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true&fields=id,name,mimeType,parents,webViewLink,size`,
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true&fields=id,name,mimeType,parents,webViewLink,size,createdTime,trashed`,
     {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: "no-store",
@@ -331,9 +345,16 @@ export async function finalizeDriveUpload(
     throw new Error("تعذر التحقق من الملف المرفوع في Google Drive");
   }
 
-  const existing = (await getRes.json()) as DriveFileMetadata;
-  if (!existing.parents?.includes(folderId)) {
+  const existing = (await getRes.json()) as DriveFileMetadata & { createdTime?: string; trashed?: boolean };
+  if (existing.trashed || !existing.parents?.includes(folderId)) {
     throw new Error("الملف لا ينتمي إلى مجلد ملفات الموقع");
+  }
+
+  // لا نقبل إنهاء رفع إلا لملف أُنشئ حديثًا (جلسة الرفع الحالية). هذا يمنع استعمال هذا المسار
+  // لجعل ملفات قديمة داخل المجلد عامة أو ربطها بمساهمات غير مرتبطة بها.
+  const createdMs = existing.createdTime ? Date.parse(existing.createdTime) : NaN;
+  if (!Number.isFinite(createdMs) || Date.now() - createdMs > 24 * 60 * 60 * 1000) {
+    throw new Error("انتهت صلاحية هذا الرفع، يرجى رفع الملف مرة أخرى");
   }
 
   const size = Number(existing.size ?? 0);

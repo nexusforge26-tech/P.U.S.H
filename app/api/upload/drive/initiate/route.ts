@@ -3,21 +3,14 @@ import { getRequestUser, rejectIfProfileIncomplete } from "@/lib/auth";
 import { initiateDriveResumableUpload } from "@/lib/googleDrive";
 import {
   MAX_PENDING_SUBMISSIONS_PER_USER,
+  MAX_UPLOADS_PER_DAY,
+  MAX_UPLOAD_BYTES_PER_DAY,
   validateUploadFileMeta,
 } from "@/lib/uploadLimits";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { badRequest, cleanText, rateLimit, safeJson, serverError, tooManyRequests, trustedOrigin } from "@/lib/security";
 
 export const runtime = "nodejs";
-
-function requestOrigin(req: NextRequest): string | null {
-  const origin = req.headers.get("origin");
-  if (origin) return origin;
-  const host = req.headers.get("x-forwarded-host") || req.headers.get("host");
-  if (!host) return null;
-  const proto =
-    req.headers.get("x-forwarded-proto") || (host.startsWith("localhost") ? "http" : "https");
-  return `${proto}://${host}`;
-}
 
 export async function POST(req: NextRequest) {
   const account = await getRequestUser(req);
@@ -25,9 +18,15 @@ export async function POST(req: NextRequest) {
   const incomplete = rejectIfProfileIncomplete(account.profile);
   if (incomplete) return incomplete;
 
+  // حماية سريعة من الإغراق قبل أي استعلام (لكل مستخدم)
+  const burst = rateLimit(`upload-init:${account.user.id}`, 10, 10 * 60 * 1000);
+  if (!burst.ok) return tooManyRequests(burst.retryAfterSec, "محاولات رفع كثيرة خلال وقت قصير، حاول بعد قليل.");
+
   try {
+    const isPlainUser = account.profile.role === "user";
+
     // منع المستخدم الذي تجاوز حد المساهمات المعلقة من رفع ملفات إضافية تستهلك مساحة Drive
-    if (account.profile.role === "user") {
+    if (isPlainUser) {
       const { count: pendingCount } = await supabaseAdmin
         .from("submissions")
         .select("id", { count: "exact", head: true })
@@ -44,26 +43,56 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const body = await req.json();
-    const fileName = String(body?.fileName || "").trim().slice(0, 255);
-    const mimeType = String(body?.mimeType || "application/octet-stream");
-    const fileSize = Number(body?.fileSize);
+    const body = await safeJson<{ fileName?: unknown; mimeType?: unknown; fileSize?: unknown }>(req, 10_000);
+    if (!body) return badRequest();
+
+    const fileName = cleanText(body.fileName, 255);
+    const mimeType = cleanText(body.mimeType, 150) || "application/octet-stream";
+    const fileSize = Number(body.fileSize);
 
     const fileCheck = validateUploadFileMeta(fileName, mimeType, fileSize);
     if (!fileCheck.valid) {
       return NextResponse.json({ error: fileCheck.error || "نوع أو حجم الملف غير صالح" }, { status: 400 });
     }
 
-    const result = await initiateDriveResumableUpload(
-      fileName,
-      mimeType,
-      fileSize,
-      requestOrigin(req)
-    );
+    // حصة يومية لكل مستخدم عادي: كان بإمكان أي حساب بدء رفع ملفات ضخمة بلا حد (لا تظهر كمساهمات
+    // قبل إتمامها) واستنزاف مساحة Drive. الجدول upload_log يُنشأ بترحيل 2026-10-18؛ إن لم يكن
+    // موجودًا بعد نتجاوز هذا الفحص دون تعطيل الرفع.
+    let quotaTrackingAvailable = true;
+    if (isPlainUser) {
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { data: recent, error: quotaErr } = await supabaseAdmin
+        .from("upload_log")
+        .select("file_size")
+        .eq("user_id", account.user.id)
+        .gte("created_at", since)
+        .limit(500);
+
+      if (quotaErr) {
+        quotaTrackingAvailable = false;
+        console.error("[upload] upload_log unavailable:", quotaErr.message);
+      } else {
+        const usedCount = recent?.length ?? 0;
+        const usedBytes = (recent ?? []).reduce((sum, r) => sum + Number(r.file_size ?? 0), 0);
+        if (usedCount >= MAX_UPLOADS_PER_DAY || usedBytes + fileSize > MAX_UPLOAD_BYTES_PER_DAY) {
+          return NextResponse.json(
+            { error: "وصلت إلى الحد اليومي للرفع. يمكنك المتابعة غدًا أو التواصل مع الإدارة." },
+            { status: 429 }
+          );
+        }
+      }
+    }
+
+    const result = await initiateDriveResumableUpload(fileName, mimeType, fileSize, trustedOrigin(req));
+
+    if (quotaTrackingAvailable) {
+      await supabaseAdmin
+        .from("upload_log")
+        .insert({ user_id: account.user.id, file_name: fileName.slice(0, 255), file_size: Math.round(fileSize) });
+    }
+
     return NextResponse.json(result, { status: 200 });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "تعذر بدء الرفع إلى Google Drive";
-    console.error("Drive upload initiation error:", err);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return serverError(err, "تعذر بدء الرفع إلى Google Drive");
   }
 }

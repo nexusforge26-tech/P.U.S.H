@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireStaff, getMaterialUniversityId, forbiddenOutOfScope } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
+import { badRequest, isUuid, safeJson, serverError } from "@/lib/security";
 
 export async function GET(req: NextRequest) {
   const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
 
-  const status = new URL(req.url).searchParams.get("status") ?? "open";
+  const rawStatus = new URL(req.url).searchParams.get("status") ?? "open";
+  const status = ["open", "resolved", "dismissed", "all"].includes(rawStatus) ? rawStatus : "open";
 
   try {
     let query = supabaseAdmin
@@ -56,9 +58,11 @@ export async function PATCH(req: NextRequest) {
   const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
 
-  const body = await req.json();
-  const { id, status } = body as { id?: string; status?: "resolved" | "dismissed" };
-  if (!id || !status || !["resolved", "dismissed"].includes(status)) {
+  const body = await safeJson<{ id?: unknown; status?: unknown }>(req, 10_000);
+  if (!body) return badRequest();
+  const id = body.id;
+  const status = body.status as "resolved" | "dismissed";
+  if (!isUuid(id) || !["resolved", "dismissed"].includes(status)) {
     return NextResponse.json({ error: "بيانات غير صالحة" }, { status: 400 });
   }
 
@@ -84,7 +88,7 @@ export async function PATCH(req: NextRequest) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
 
   await logActivity({
     actor,

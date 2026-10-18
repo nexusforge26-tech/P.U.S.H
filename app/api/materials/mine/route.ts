@@ -5,7 +5,11 @@ import { logActivity } from "@/lib/activity";
 import { SELF_EDIT_WINDOW_HOURS } from "@/lib/types";
 import { extractYoutubeId } from "@/lib/youtube";
 import { validateLink, validateMaterialInput } from "@/lib/validation";
-import { deleteDriveFileByLink } from "@/lib/googleDrive";
+import { deleteDriveFileIfUnreferenced } from "@/lib/driveCleanup";
+import { badRequest, isUuid, safeJson, serverError } from "@/lib/security";
+
+// روابط داخل العنوان/الوصف: التعديل الذاتي بعد النشر لا يمر بمراجعة، فنمنع إدخال روابط (إعلانات/تصيّد).
+const URL_IN_TEXT = /(https?:\/\/|www\.|\b[a-z0-9-]+\.(com|net|org|io|me|ly|xyz|ru|tk)\b)/i;
 
 const WINDOW_MS = SELF_EDIT_WINDOW_HOURS * 60 * 60 * 1000;
 
@@ -37,7 +41,7 @@ export async function GET(req: NextRequest) {
     .eq("created_by", account.user.id)
     .order("created_at", { ascending: false });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
   return NextResponse.json({ items: (data ?? []).map((r) => flatten(r as Record<string, unknown>)) });
 }
 
@@ -70,9 +74,11 @@ export async function PATCH(req: NextRequest) {
   const incomplete = rejectIfProfileIncomplete(account.profile);
   if (incomplete) return incomplete;
 
-  const body = await req.json();
+  const body = await safeJson<Record<string, any>>(req);
+  if (!body) return badRequest();
   const { id, drive_link, youtube_input } = body;
   if (!id) return NextResponse.json({ error: "معرّف المادة مطلوب" }, { status: 400 });
+  if (!isUuid(id)) return badRequest("معرّف المادة غير صالح");
 
   const owned = await loadOwned(id, account.user.id);
   if (owned.error) return owned.error;
@@ -81,6 +87,10 @@ export async function PATCH(req: NextRequest) {
   const validated = validateMaterialInput({ ...body, requireType: false });
   if (!validated.valid) {
     return NextResponse.json({ error: validated.error || "بيانات التعديل غير صالحة" }, { status: 400 });
+  }
+
+  if (URL_IN_TEXT.test(validated.title_ar) || (validated.description_ar && URL_IN_TEXT.test(validated.description_ar))) {
+    return badRequest("لا يُسمح بإضافة روابط داخل العنوان أو الوصف. لتغيير الملف استخدم حقل الرابط/الملف (يمر بمراجعة الإدارة).");
   }
 
   // تحديث البيانات الوصفية الآمنة فقط (العنوان، الوصف، الفصل، العام الدراسي) مباشرة على المادة المنشورة.
@@ -122,7 +132,7 @@ export async function PATCH(req: NextRequest) {
     .select(select)
     .single();
 
-  if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
+  if (updateError) return serverError(updateError);
 
   if (sourceChanged) {
     // نُدرج طلب تعديل معلّق للرابط/الملف الجديد ليراجعه المسؤولون قبل استبدال الملف المنشور للعامة
@@ -201,16 +211,18 @@ export async function DELETE(req: NextRequest) {
 
   const id = new URL(req.url).searchParams.get("id");
   if (!id) return NextResponse.json({ error: "معرّف المادة مطلوب" }, { status: 400 });
+  if (!isUuid(id)) return badRequest("معرّف المادة غير صالح");
 
   const owned = await loadOwned(id, account.user.id);
   if (owned.error) return owned.error;
 
   const { error } = await supabaseAdmin.from("materials").delete().eq("id", id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
 
-  // حذف الملف المرتبط من Google Drive إن كان ضمن مجلد الموقع لمنع تراكم الملفات اليتيمة
+  // حذف الملف من Google Drive لمنع تراكم الملفات اليتيمة — بشرط ألا تشير إليه مادة أو مساهمة أخرى
+  // (وإلا يستطيع المستخدم حذف ملف مادة غيره بالإشارة إلى رابطه).
   if (owned.data!.drive_link) {
-    await deleteDriveFileByLink(owned.data!.drive_link).catch(() => {});
+    await deleteDriveFileIfUnreferenced(owned.data!.drive_link, { excludeMaterialId: id }).catch(() => {});
   }
 
   await logActivity({

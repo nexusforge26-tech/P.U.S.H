@@ -6,6 +6,10 @@ export const MAX_UPLOAD_LABEL = "1 جيجابايت";
 // الحد الأقصى لعدد المساهمات المعلقة لكل مستخدم في نفس الوقت لمنع الإغراق (Rate Limit).
 export const MAX_PENDING_SUBMISSIONS_PER_USER = 10;
 
+// حصة الرفع اليومية للمستخدم العادي (المسؤولون غير مقيّدين) لحماية مساحة Google Drive من الاستنزاف.
+export const MAX_UPLOADS_PER_DAY = 20;
+export const MAX_UPLOAD_BYTES_PER_DAY = 3 * 1024 * 1024 * 1024;
+
 // الامتدادات المسموح برفعها إلى Google Drive العام للموقع.
 export const ALLOWED_UPLOAD_EXTENSIONS = new Set([
   "pdf",
@@ -134,6 +138,16 @@ export function validateUploadFileMeta(
       valid: false,
       error: "يجب أن يحتوي الملف على امتداد واضح (مثل .pdf أو .docx أو .pptx أو .zip)",
       extension: "",
+    };
+  }
+
+  // امتداد مزدوج مخادع مثل report.html.pdf أو app.exe.zip: نمنع وجود امتداد محظور داخل الاسم نفسه
+  const nameParts = name.toLowerCase().split(".").slice(1, -1);
+  if (nameParts.some((part) => BLOCKED_UPLOAD_EXTENSIONS.has(part.trim()))) {
+    return {
+      valid: false,
+      error: "اسم الملف يحتوي على امتداد غير مسموح به، يرجى إعادة تسميته.",
+      extension: ext,
     };
   }
 

@@ -87,6 +87,21 @@ export function extractDriveFolderId(rawLink: string): string | null {
   }
 }
 
+/**
+ * يرفض localhost والنطاقات الداخلية وأي عنوان IP مباشر (IPv4 بكل صيغه: عشري/ست عشري/ثماني، وIPv6).
+ * القائمة القديمة كانت تتجاوز 169.254.x.x و 100.64.x.x و [::1] و 0x7f000001 و 2130706433.
+ */
+export function isLocalOrIpHost(host: string): boolean {
+  if (!host) return true;
+  if (host.startsWith("[") || host.includes(":")) return true; // IPv6 literal
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  if (/\.(local|internal|lan|home|corp|intranet|localdomain)$/.test(host)) return true;
+  // أي مضيف يتكوّن كله من أرقام/نقاط/ست عشري يعني عنوان IP بصيغة ما
+  if (/^[0-9.]+$/.test(host) || /^0x[0-9a-f.]+$/i.test(host)) return true;
+  if (!host.includes(".")) return true; // مضيف بلا نطاق (اسم داخلي)
+  return false;
+}
+
 export function validateLink(
   raw: unknown,
   options: { driveOnly?: boolean; allowTrustedExternal?: boolean } = {}
@@ -149,19 +164,15 @@ export function validateLink(
     };
   }
 
-  const host = parsed.hostname.toLowerCase();
-  if (
-    host === "localhost" ||
-    host.endsWith(".local") ||
-    /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|0\.0\.0\.0)/.test(host)
-  ) {
+  const host = parsed.hostname.toLowerCase().replace(/\.$/, "");
+  if (isLocalOrIpHost(host)) {
     return {
       valid: false,
       url: null,
       isDrive: false,
       driveFileId: null,
       driveFolderId: null,
-      error: "لا يُسمح بالروابط المحلية",
+      error: "لا يُسمح بالروابط المحلية أو عناوين IP المباشرة",
     };
   }
 

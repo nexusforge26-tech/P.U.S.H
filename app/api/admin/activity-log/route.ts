@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireStaff } from "@/lib/auth";
+import { sanitizeFilterTerm, serverError } from "@/lib/security";
 
 export async function GET(req: NextRequest) {
   const actor = await requireStaff(req);
@@ -33,7 +34,7 @@ export async function GET(req: NextRequest) {
     query = query.eq("action", actionFilter);
   }
   if (q) {
-    const safe = q.replace(/[,()%*]/g, " ").trim();
+    const safe = sanitizeFilterTerm(q, 100);
     if (safe) {
       query = query.or(
         `title_ar.ilike.%${safe}%,actor_name.ilike.%${safe}%,actor_email.ilike.%${safe}%`
@@ -42,7 +43,7 @@ export async function GET(req: NextRequest) {
   }
 
   const { data, count, error } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
 
   return NextResponse.json({
     items: data ?? [],

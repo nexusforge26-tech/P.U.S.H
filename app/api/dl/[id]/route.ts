@@ -8,52 +8,72 @@ import {
   getDriveFileMetadata,
   resolveFileFromDriveFolder,
 } from "@/lib/googleDrive";
+import { validateLink } from "@/lib/validation";
+import { getClientIp, isUuid, rateLimit, shouldCountDownload, tooManyRequests } from "@/lib/security";
 
 export const runtime = "nodejs";
 
 const DIRECT_STREAM_LIMIT_BYTES = 20 * 1024 * 1024;
+
+// أنواع آمنة للعرض داخل المتصفح (inline). أي نوع آخر يُنزَّل كمرفق دائمًا حتى لا يُنفَّذ كصفحة على نطاق الموقع.
+const INLINE_SAFE_MIME = /^(application\/pdf|image\/(png|jpe?g|webp|gif))$/i;
+
+function safeExtension(rawName: string): string {
+  const m = /\.([A-Za-z0-9]{1,8})$/.exec(rawName);
+  return m ? `.${m[1]!.toLowerCase()}` : ".pdf";
+}
+
+function hardenedHeaders(headers: Headers, inline: boolean) {
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("Cross-Origin-Resource-Policy", "same-origin");
+  // الملفات المعروضة داخل المتصفح (PDF/صور) لا نضع عليها sandbox لأن عارض PDF في كروم يتوقف معه؛
+  // يكفيها nosniff لأننا نحصر العرض المباشر بأنواع آمنة. أما المرفقات فنقيّدها بالكامل.
+  if (!inline) headers.set("Content-Security-Policy", "default-src 'none'; sandbox");
+}
 
 export async function GET(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   const id = params.id?.trim();
-  if (!id) {
-    return NextResponse.json({ error: "معرّف الملف مطلوب" }, { status: 400 });
+
+  // لا نقبل إلا معرّف مادة (UUID). كان المسار يقبل سابقًا أي معرّف ملف Drive خام،
+  // فيجلب أي ملف يصل إليه حساب مالك الموقع ويجعله عامًا.
+  if (!isUuid(id)) {
+    return NextResponse.json({ error: "معرّف المادة غير صالح" }, { status: 400 });
   }
 
-  const mode = new URL(req.url).searchParams.get("mode") || "download";
+  const modeParam = new URL(req.url).searchParams.get("mode") || "download";
+  const mode = ["download", "stream", "inline", "meta"].includes(modeParam) ? modeParam : "download";
 
-  let driveLink: string | null = null;
-  let titleAr = "push-material";
-  let materialId: string | null = null;
+  const ip = getClientIp(req);
+  const limit = rateLimit(`dl-route:${ip}:${mode === "meta" ? "meta" : "file"}`, mode === "meta" ? 120 : 60, 60_000);
+  if (!limit.ok) return tooManyRequests(limit.retryAfterSec);
 
-  if (/^[0-9a-fA-F-]{36}$/.test(id)) {
-    const { data: mat } = await supabaseAdmin
-      .from("materials")
-      .select("id, title_ar, drive_link, youtube_id")
-      .eq("id", id)
-      .maybeSingle();
+  const { data: mat, error: matError } = await supabaseAdmin
+    .from("materials")
+    .select("id, title_ar, drive_link, youtube_id")
+    .eq("id", id)
+    .maybeSingle();
 
-    if (!mat) {
-      return NextResponse.json({ error: "المادة غير موجودة" }, { status: 404 });
-    }
+  if (matError) {
+    console.error("[dl] material lookup failed:", matError.message);
+    return NextResponse.json({ error: "تعذر جلب المادة" }, { status: 500 });
+  }
+  if (!mat) {
+    return NextResponse.json({ error: "المادة غير موجودة" }, { status: 404 });
+  }
 
-    materialId = mat.id;
-    titleAr = mat.title_ar || titleAr;
-    driveLink = mat.drive_link;
+  const materialId: string = mat.id;
+  const titleAr: string = mat.title_ar || "push-material";
+  const driveLink: string | null = mat.drive_link;
 
-    if (mode === "download") {
-      Promise.resolve(
-        supabaseAdmin.rpc("increment_downloads", { material_id: mat.id })
-      ).catch(() => {});
-    }
+  if (mode === "download" && shouldCountDownload(ip, materialId)) {
+    Promise.resolve(supabaseAdmin.rpc("increment_downloads", { material_id: materialId })).catch(() => {});
+  }
 
-    if (!driveLink && mat.youtube_id) {
-      return NextResponse.redirect(`https://www.youtube.com/embed/${mat.youtube_id}`, 302);
-    }
-  } else {
-    driveLink = `https://drive.google.com/file/d/${encodeURIComponent(id)}/view`;
+  if (!driveLink && mat.youtube_id && /^[\w-]{11}$/.test(mat.youtube_id)) {
+    return NextResponse.redirect(`https://www.youtube.com/watch?v=${encodeURIComponent(mat.youtube_id)}`, 302);
   }
 
   if (!driveLink) {
@@ -69,19 +89,17 @@ export async function GET(
     if (resolvedMeta?.id) {
       fileId = resolvedMeta.id;
       await ensureFilePublicReader(fileId);
-      if (materialId) {
-        const directViewUrl = `https://drive.google.com/file/d/${fileId}/view`;
-        Promise.resolve(
-          supabaseAdmin
-            .from("materials")
-            .update({
-              drive_link: directViewUrl,
-              file_size: resolvedMeta.size ? Number(resolvedMeta.size) : undefined,
-              mime_type: resolvedMeta.mimeType || undefined,
-            })
-            .eq("id", materialId)
-        ).catch(() => {});
-      }
+      const directViewUrl = `https://drive.google.com/file/d/${fileId}/view`;
+      Promise.resolve(
+        supabaseAdmin
+          .from("materials")
+          .update({
+            drive_link: directViewUrl,
+            file_size: resolvedMeta.size ? Number(resolvedMeta.size) : undefined,
+            mime_type: resolvedMeta.mimeType || undefined,
+          })
+          .eq("id", materialId)
+      ).catch(() => {});
     }
   } else if (fileId) {
     resolvedMeta = await getDriveFileMetadata(fileId);
@@ -92,8 +110,7 @@ export async function GET(
 
   if (mode === "meta") {
     const accessible = Boolean(fileId && resolvedMeta?.id);
-    const isPresentation =
-      resolvedMeta?.mimeType === "application/vnd.google-apps.presentation";
+    const isPresentation = resolvedMeta?.mimeType === "application/vnd.google-apps.presentation";
     const previewUrl = accessible
       ? isPresentation
         ? `https://docs.google.com/presentation/d/${encodeURIComponent(fileId!)}/embed`
@@ -105,16 +122,16 @@ export async function GET(
       accessible,
       mimeType: resolvedMeta?.mimeType || null,
       previewUrl,
-      streamUrl: accessible ? `/api/dl/${encodeURIComponent(materialId || fileId!)}?mode=stream` : null,
-      error: accessible
-        ? null
-        : "الملف المرتبط بهذه المادة غير متاح أو مقفل من المصدر الخارجي.",
+      streamUrl: accessible ? `/api/dl/${encodeURIComponent(materialId)}?mode=stream` : null,
+      error: accessible ? null : "الملف المرتبط بهذه المادة غير متاح أو مقفل من المصدر الخارجي.",
     });
   }
 
   if (!fileId || !resolvedMeta?.id) {
-    if (driveLink.startsWith("https://") && !driveLink.includes("/drive/folders/") && !driveLink.includes("drive.google.com")) {
-      return NextResponse.redirect(driveLink, 302);
+    // رابط خارجي موثوق (غير Drive): نعيد التحقق منه عبر نفس قواعد الإدخال قبل التحويل.
+    const external = validateLink(driveLink);
+    if (external.valid && external.url && !external.isDrive) {
+      return NextResponse.redirect(external.url, 302);
     }
     return NextResponse.json(
       { error: "تعذر العثور على ملف متاح للمعاينة أو التنزيل المباشر" },
@@ -124,84 +141,61 @@ export async function GET(
 
   const sizeBytes = Number(resolvedMeta?.size ?? 0);
   const rawName = resolvedMeta?.name || `${titleAr}.pdf`;
-  const ext = rawName.includes(".") ? "." + rawName.split(".").pop() : ".pdf";
-  const cleanTitle = titleAr.replace(/[\\/:*?"<>|]/g, "-").trim();
-  const downloadFileName = cleanTitle.toLowerCase().endsWith(ext.toLowerCase())
-    ? cleanTitle
-    : `${cleanTitle}${ext}`;
+  const ext = safeExtension(rawName);
+  const cleanTitle = titleAr
+    .replace(/[\u0000-\u001f\u007f\\/:*?"<>|]/g, "-")
+    .trim()
+    .slice(0, 120) || "push-material";
+  const downloadFileName = cleanTitle.toLowerCase().endsWith(ext) ? cleanTitle : `${cleanTitle}${ext}`;
+
+  const canStreamDirectly = sizeBytes === 0 || sizeBytes <= DIRECT_STREAM_LIMIT_BYTES;
 
   if (mode === "stream") {
-    if (sizeBytes === 0 || sizeBytes <= DIRECT_STREAM_LIMIT_BYTES) {
+    if (canStreamDirectly) {
       const streamRes = await fetchDriveFileStream(fileId);
       if (streamRes && streamRes.body) {
-        const mimeType =
-          resolvedMeta?.mimeType ||
-          streamRes.headers.get("content-type") ||
-          "application/pdf";
+        const mimeType = resolvedMeta?.mimeType || streamRes.headers.get("content-type") || "application/octet-stream";
+        const inlineAllowed = INLINE_SAFE_MIME.test(mimeType);
 
         const headers = new Headers();
-        headers.set("Content-Type", mimeType);
+        headers.set("Content-Type", inlineAllowed ? mimeType : "application/octet-stream");
         headers.set(
           "Content-Disposition",
-          `inline; filename="preview${ext}"; filename*=UTF-8''${encodeURIComponent(
-            downloadFileName
-          )}`
+          `${inlineAllowed ? "inline" : "attachment"}; filename="preview${ext}"; filename*=UTF-8''${encodeURIComponent(downloadFileName)}`
         );
-        if (sizeBytes > 0) {
-          headers.set("Content-Length", String(sizeBytes));
-        }
+        if (sizeBytes > 0) headers.set("Content-Length", String(sizeBytes));
         headers.set("Cache-Control", "public, max-age=3600");
+        hardenedHeaders(headers, inlineAllowed);
 
-        return new NextResponse(streamRes.body, {
-          status: 200,
-          headers,
-        });
+        return new NextResponse(streamRes.body, { status: 200, headers });
       }
     }
-    return NextResponse.redirect(
-      `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/preview`,
-      302
-    );
+    return NextResponse.redirect(`https://drive.google.com/file/d/${encodeURIComponent(fileId)}/preview`, 302);
   }
 
   if (mode === "inline") {
-    return NextResponse.redirect(
-      `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/preview`,
-      302
-    );
+    return NextResponse.redirect(`https://drive.google.com/file/d/${encodeURIComponent(fileId)}/preview`, 302);
   }
 
-  if (sizeBytes === 0 || sizeBytes <= DIRECT_STREAM_LIMIT_BYTES) {
+  if (canStreamDirectly) {
     const streamRes = await fetchDriveFileStream(fileId);
     if (streamRes && streamRes.body) {
-      const mimeType =
-        resolvedMeta?.mimeType ||
-        streamRes.headers.get("content-type") ||
-        "application/octet-stream";
-
       const headers = new Headers();
-      headers.set("Content-Type", mimeType);
+      // التنزيل يكون دائمًا كمرفق بنوع عام، فلا يُعرض أي محتوى كصفحة على نطاق الموقع.
+      headers.set("Content-Type", "application/octet-stream");
       headers.set(
         "Content-Disposition",
-        `attachment; filename="download${ext}"; filename*=UTF-8''${encodeURIComponent(
-          downloadFileName
-        )}`
+        `attachment; filename="download${ext}"; filename*=UTF-8''${encodeURIComponent(downloadFileName)}`
       );
-      if (sizeBytes > 0) {
-        headers.set("Content-Length", String(sizeBytes));
-      }
+      if (sizeBytes > 0) headers.set("Content-Length", String(sizeBytes));
       headers.set("Cache-Control", "public, max-age=3600");
+      hardenedHeaders(headers, false);
 
-      return new NextResponse(streamRes.body, {
-        status: 200,
-        headers,
-      });
+      return new NextResponse(streamRes.body, { status: 200, headers });
     }
   }
 
   await ensureFilePublicReader(fileId);
-  const directBinaryDownloadUrl = `https://drive.google.com/uc?export=download&confirm=t&id=${encodeURIComponent(
-    fileId
-  )}`;
+  const directBinaryDownloadUrl = `https://drive.google.com/uc?export=download&confirm=t&id=${encodeURIComponent(fileId)}`;
   return NextResponse.redirect(directBinaryDownloadUrl, 302);
 }

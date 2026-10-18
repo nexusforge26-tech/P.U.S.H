@@ -4,7 +4,8 @@ import { requireStaff, getCourseUniversityId, forbiddenOutOfScope } from "@/lib/
 import { logActivity } from "@/lib/activity";
 import { extractYoutubeId } from "@/lib/youtube";
 import { validateLink, validateMaterialInput } from "@/lib/validation";
-import { deleteDriveFileByLink } from "@/lib/googleDrive";
+import { deleteDriveFileIfUnreferenced } from "@/lib/driveCleanup";
+import { badRequest, isUuid, safeJson, sanitizeFilterTerm, serverError } from "@/lib/security";
 
 const select = `
   id, course_id, title_ar, description_ar, type, academic_year, semester,
@@ -43,14 +44,16 @@ export async function GET(req: NextRequest) {
   const scope = actor.scopeUniversityId;
 
   const { searchParams } = new URL(req.url);
-  const q = searchParams.get("q")?.trim() ?? "";
-  const type = searchParams.get("type") ?? "";
+  const q = sanitizeFilterTerm(searchParams.get("q") ?? "", 100);
+  const type = ["exam", "summary", "file", "video"].includes(searchParams.get("type") ?? "") ? (searchParams.get("type") as string) : "";
   const featured = searchParams.get("featured") ?? "";
   // مسؤول الجامعة: نتجاهل أي university_id مُمرَّر ونفرض جامعته
-  const universityId = scope ?? searchParams.get("university_id") ?? searchParams.get("university") ?? "";
-  const courseIdParam = searchParams.get("course_id") ?? "";
-  const page = Math.max(1, Number(searchParams.get("page") ?? 1));
-  const pageSize = Math.min(50, Math.max(5, Number(searchParams.get("pageSize") ?? 12)));
+  const rawUniversityId = scope ?? searchParams.get("university_id") ?? searchParams.get("university") ?? "";
+  const universityId = isUuid(rawUniversityId) ? rawUniversityId : "";
+  const rawCourseId = searchParams.get("course_id") ?? "";
+  const courseIdParam = isUuid(rawCourseId) ? rawCourseId : "";
+  const page = Math.max(1, Math.floor(Number(searchParams.get("page") ?? 1)) || 1);
+  const pageSize = Math.min(50, Math.max(5, Math.floor(Number(searchParams.get("pageSize") ?? 12)) || 12));
   const from = (page - 1) * pageSize;
 
   let courseIds: string[] | null = null;
@@ -120,12 +123,8 @@ export async function GET(req: NextRequest) {
   if (materialsResult.error) {
     materialsResult = await buildQuery(selectFallback);
   }
-  if (materialsResult.error) {
-    return NextResponse.json({ error: materialsResult.error.message }, { status: 500 });
-  }
-  if (downloadsResult.error) {
-    return NextResponse.json({ error: downloadsResult.error.message }, { status: 500 });
-  }
+  if (materialsResult.error) return serverError(materialsResult.error);
+  if (downloadsResult.error) return serverError(downloadsResult.error);
 
   const downloads = (downloadsResult.data ?? []).reduce(
     (sum: number, item: { downloads_count: number | null }) => sum + Number(item.downloads_count ?? 0),
@@ -147,9 +146,11 @@ export async function POST(req: NextRequest) {
   const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
 
-  const body = await req.json();
+  const body = await safeJson<Record<string, any>>(req);
+  if (!body) return badRequest();
   const { course_id, drive_link, youtube_input, is_featured, is_verified, file_size, mime_type } = body;
   if (!course_id) return NextResponse.json({ error: "المساق مطلوب" }, { status: 400 });
+  if (!isUuid(course_id)) return badRequest("المساق غير صالح");
   if (actor.scopeUniversityId && (await getCourseUniversityId(course_id)) !== actor.scopeUniversityId) {
     return forbiddenOutOfScope();
   }
@@ -187,8 +188,8 @@ export async function POST(req: NextRequest) {
   const extendedPayload = {
     ...basePayload,
     is_verified: is_verified !== undefined ? Boolean(is_verified) : true,
-    file_size: typeof file_size === "number" && file_size > 0 ? file_size : null,
-    mime_type: typeof mime_type === "string" && mime_type ? mime_type : null,
+    file_size: typeof file_size === "number" && Number.isFinite(file_size) && file_size > 0 ? Math.round(file_size) : null,
+    mime_type: typeof mime_type === "string" && /^[\w.+-]+\/[\w.+-]+$/.test(mime_type.trim()) ? mime_type.trim().slice(0, 150) : null,
   };
 
   const first = await supabaseAdmin
@@ -204,7 +205,7 @@ export async function POST(req: NextRequest) {
       .insert(basePayload)
       .select(selectFallback)
       .single();
-    if (retry.error) return NextResponse.json({ error: retry.error.message }, { status: 500 });
+    if (retry.error) return serverError(retry.error);
     data = retry.data;
   }
 
@@ -224,9 +225,11 @@ export async function PATCH(req: NextRequest) {
   const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
 
-  const body = await req.json();
+  const body = await safeJson<Record<string, any>>(req);
+  if (!body) return badRequest();
   const { id, course_id, drive_link, youtube_input, is_featured, is_verified } = body;
   if (!id || !course_id) return NextResponse.json({ error: "الحقول الأساسية ناقصة" }, { status: 400 });
+  if (!isUuid(id) || !isUuid(course_id)) return badRequest("معرّف غير صالح");
   if (actor.scopeUniversityId) {
     // المادة الحالية والمساق الجديد كلاهما يجب أن يتبعا جامعة مسؤول الجامعة
     const { data: current } = await supabaseAdmin.from("materials").select("course_id").eq("id", id).maybeSingle();
@@ -286,7 +289,7 @@ export async function PATCH(req: NextRequest) {
       .eq("id", id)
       .select(selectFallback)
       .single();
-    if (retry.error) return NextResponse.json({ error: retry.error.message }, { status: 500 });
+    if (retry.error) return serverError(retry.error);
     data = retry.data;
   }
 
@@ -308,6 +311,7 @@ export async function DELETE(req: NextRequest) {
 
   const id = new URL(req.url).searchParams.get("id");
   if (!id) return NextResponse.json({ error: "معرّف المادة مطلوب" }, { status: 400 });
+  if (!isUuid(id)) return badRequest("معرّف المادة غير صالح");
 
   const { data: existing } = await supabaseAdmin
     .from("materials")
@@ -322,11 +326,11 @@ export async function DELETE(req: NextRequest) {
   }
 
   const { error } = await supabaseAdmin.from("materials").delete().eq("id", id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
 
-  // حذف الملف من Google Drive إن كان ضمن مجلد الموقع لمنع تكدس الملفات المحذوفة
+  // حذف الملف من Google Drive لمنع تكدس الملفات المحذوفة — فقط إن لم تشر إليه مادة/مساهمة أخرى
   if (existing?.drive_link) {
-    await deleteDriveFileByLink(existing.drive_link).catch(() => {});
+    await deleteDriveFileIfUnreferenced(existing.drive_link, { excludeMaterialId: id }).catch(() => {});
   }
 
   await logActivity({

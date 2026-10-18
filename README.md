@@ -18,7 +18,8 @@
 >   1. `supabase/migrations/2026-10-13-remove-faculties.sql` (إذا كانت القاعدة قديمة وتحتوي على جدول `faculties`)
 >   2. `supabase/migrations/2026-10-15-security-and-features.sql` (لتحديثات الأمان، الفهارس، تطبيع البحث العربي، الإشعارات، والبلاغات)
 >   3. `supabase/migrations/2026-10-16-profile-contact-info.sql` (حقول الهاتف والواتساب والجامعة الإلزامية في الملف الشخصي)
->   4. `supabase/migrations/2026-10-17-university-admin-role.sql` (دور «مسؤول الجامعة» وربط سجل النشاط بالجامعة) — **إلزامي قبل نشر هذا الإصدار**
+>   5. `supabase/migrations/2026-10-18-security-hardening.sql` (حصص الرفع، التصويت الذري، حدود الأطوال، تقوية الصلاحيات) — **إلزامي**
+   4. `supabase/migrations/2026-10-17-university-admin-role.sql` (دور «مسؤول الجامعة» وربط سجل النشاط بالجامعة) — **إلزامي قبل نشر هذا الإصدار**
 
 ### الأدوار والصلاحيات
 
@@ -104,3 +105,11 @@ npm test
 2. متغير بريد المالك (`OWNER_EMAIL`) ورابط الموقع (`NEXT_PUBLIC_SITE_URL`).
 3. متغيرات Google Drive (`GOOGLE_DRIVE_FOLDER_ID` مع ثلاثي `GOOGLE_OAUTH_CLIENT_ID` و`GOOGLE_OAUTH_CLIENT_SECRET` و`GOOGLE_OAUTH_REFRESH_TOKEN`).
 4. تأكد من إضافة رابط `https://YOUR-VERCEL-DOMAIN.vercel.app/auth/callback` في إعدادات Supabase Redirect URLs.
+
+
+## ملاحظات أمنية (إصدار التقوية)
+- ويب هوك واتساب يتطلب `WHATSAPP_APP_SECRET` (Meta) و/أو `WHATSAPP_BOT_SECRET` (n8n)، وإلا يرفض الطلبات.
+- مسار `/api/dl/[id]` يقبل معرّف مادة (UUID) فقط.
+- التصويت «مفيد» يتطلب تسجيل الدخول.
+- الترقية التلقائية إلى «مالك» تتطلب بريدًا موثّقًا في Supabase Auth.
+- يُنصح بتفعيل تأكيد البريد في Supabase وتدوير أي مفاتيح سبق مشاركتها.

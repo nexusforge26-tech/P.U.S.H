@@ -50,11 +50,23 @@ export default function MaterialActions({
       const res = await authFetch(`/api/materials/${encodeURIComponent(materialId)}/helpful`, {
         method: "POST",
       });
+      if (res.status === 401) {
+        // التصويت يتطلب حسابًا: نتراجع عن التحديث المتفائل ونوجّه المستخدم لتسجيل الدخول.
+        localStorage.removeItem(`push_voted_${materialId}`);
+        setVoted(false);
+        setHelpfulCount((c) => Math.max(0, c - 1));
+        window.location.href = `/auth?next=${encodeURIComponent(window.location.pathname)}`;
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
         if (typeof data.helpful_count === "number") {
           setHelpfulCount(data.helpful_count);
         }
+      } else {
+        localStorage.removeItem(`push_voted_${materialId}`);
+        setVoted(false);
+        setHelpfulCount((c) => Math.max(0, c - 1));
       }
     } catch {
       // تجاهل

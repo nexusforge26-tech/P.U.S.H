@@ -8,6 +8,7 @@ import {
 } from "@/lib/auth";
 import { isUserRole } from "@/lib/roles";
 import { logActivity } from "@/lib/activity";
+import { badRequest, isUuid, safeJson, sanitizeFilterTerm, serverError } from "@/lib/security";
 
 const PROFILE_COLUMNS =
   "id,email,full_name,avatar_url,role,phone,whatsapp,university_id,managed_university_id,created_at,updated_at";
@@ -41,7 +42,7 @@ export async function GET(req: NextRequest) {
     query = query.eq("role", roleFilter);
   }
   if (q) {
-    const safe = q.replace(/[,()%*]/g, " ").trim();
+    const safe = sanitizeFilterTerm(q, 100);
     if (safe) {
       query = query.or(
         `full_name.ilike.%${safe}%,email.ilike.%${safe}%,phone.ilike.%${safe}%,whatsapp.ilike.%${safe}%`
@@ -50,7 +51,7 @@ export async function GET(req: NextRequest) {
   }
 
   const { data, count, error } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
 
   return NextResponse.json({
     users: data ?? [],
@@ -66,13 +67,16 @@ export async function PATCH(req: NextRequest) {
   const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
 
-  const { id, role, university_id } = (await req.json()) as {
-    id?: string;
-    role?: UserRole;
-    university_id?: string;
-  };
-  if (!id || !role) {
+  const body = await safeJson<{ id?: unknown; role?: unknown; university_id?: unknown }>(req, 10_000);
+  if (!body) return badRequest();
+  const id = body.id;
+  const role = body.role as UserRole;
+  const university_id = body.university_id;
+  if (!isUuid(id) || !isUserRole(role)) {
     return NextResponse.json({ error: "بيانات غير صالحة" }, { status: 400 });
+  }
+  if (university_id !== undefined && university_id !== null && university_id !== "" && !isUuid(university_id)) {
+    return badRequest("الجامعة المحددة غير صالحة");
   }
 
   const { data: target } = await supabaseAdmin
@@ -100,7 +104,7 @@ export async function PATCH(req: NextRequest) {
   let managedUniversityId: string | null = null;
   let managedUniversityName: string | null = null;
   if (role === "uni_admin") {
-    managedUniversityId = university_id || target.university_id || null;
+    managedUniversityId = (typeof university_id === "string" && university_id) || target.university_id || null;
     if (!managedUniversityId) {
       return NextResponse.json(
         { error: "لا يمكن تعيين مسؤول جامعة بلا جامعة. اطلب من العضو اختيار جامعته أولًا أو حدّد الجامعة." },
@@ -128,7 +132,7 @@ export async function PATCH(req: NextRequest) {
     .select(PROFILE_COLUMNS)
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
 
   await logActivity({
     actor,
@@ -150,6 +154,7 @@ export async function DELETE(req: NextRequest) {
 
   const id = new URL(req.url).searchParams.get("id");
   if (!id) return NextResponse.json({ error: "معرّف المستخدم مطلوب" }, { status: 400 });
+  if (!isUuid(id)) return badRequest("معرّف المستخدم غير صالح");
 
   const { data: target } = await supabaseAdmin
     .from("profiles")
@@ -192,6 +197,14 @@ export async function DELETE(req: NextRequest) {
     .eq("user_id", id);
 
   const { error } = await supabaseAdmin.auth.admin.deleteUser(id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return serverError(error);
+
+  await logActivity({
+    actor,
+    action: "user_deleted",
+    target_type: "user",
+    target_id: id,
+    title_ar: `حذف حساب: ${target.full_name || target.email || "عضو"}`,
+  });
   return NextResponse.json({ ok: true });
 }

@@ -22,7 +22,16 @@
         "url": "https://YOUR-DOMAIN.vercel.app/api/whatsapp/webhook",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"message\": \"{{ $json.messages[0].text.body }}\"\n}"
+        "jsonBody": "={\n  \"message\": \"{{ $json.messages[0].text.body }}\"\n}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_WHATSAPP_BOT_SECRET"
+            }
+          ]
+        }
       },
       "id": "push-gemini-search",
       "name": "البحث في مستودع Drive مع Gemini وتوليد رابط التنزيل المباشر",

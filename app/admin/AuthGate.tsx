@@ -6,8 +6,6 @@ import { supabase } from "@/lib/supabase/client";
 import { authFetch } from "@/lib/authFetch";
 import { isStaffRole } from "@/lib/roles";
 
-const KEY = "push_admin_access_token";
-
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [authed, setAuthed] = useState(false);
@@ -41,7 +39,6 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
         // مسؤول الجامعة يدخل اللوحة أيضًا، لكن السيرفر يقيّد بياناته بجامعته
         const scoped = role === "uni_admin" && !data?.profile?.managed_university_id;
         if (isStaffRole(role) && !scoped) {
-          sessionStorage.setItem(KEY, session.access_token);
           setAuthed(true);
         } else {
           setError(
@@ -60,12 +57,9 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_OUT" || !session) {
-        sessionStorage.removeItem(KEY);
         setAuthed(false);
         setHasSession(false);
-        return;
       }
-      sessionStorage.setItem(KEY, session.access_token);
     });
 
     return () => {
@@ -127,12 +121,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function adminToken() {
-  return typeof window === "undefined" ? "" : sessionStorage.getItem(KEY) || "";
-}
-
 export async function logoutAdmin() {
-  sessionStorage.removeItem(KEY);
   await supabase.auth.signOut();
   window.location.href = "/admin";
 }

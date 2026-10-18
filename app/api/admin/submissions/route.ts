@@ -3,7 +3,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireStaff, getCourseUniversityId, type StaffAccount } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
 import { createUserNotification } from "@/lib/notifications";
-import { deleteDriveFileByLink } from "@/lib/googleDrive";
+import { deleteDriveFileIfUnreferenced } from "@/lib/driveCleanup";
+import { badRequest, cleanText, isUuid, safeJson, serverError } from "@/lib/security";
 import { normalizeArabic } from "@/lib/arabic";
 import { validateLink } from "@/lib/validation";
 
@@ -50,7 +51,8 @@ export async function GET(req: NextRequest) {
   const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
 
-  const status = new URL(req.url).searchParams.get("status") ?? "pending";
+  const rawStatus = new URL(req.url).searchParams.get("status") ?? "pending";
+  const status = ["pending", "approved", "rejected", "all"].includes(rawStatus) ? rawStatus : "pending";
 
   const runSelect = async (sel: string) => {
     const q = supabaseAdmin.from("submissions").select(sel).order("created_at", { ascending: false });
@@ -60,7 +62,7 @@ export async function GET(req: NextRequest) {
   let { data, error } = await runSelect(select);
   if (error) {
     const fallback = await runSelect(selectFallback);
-    if (fallback.error) return NextResponse.json({ error: fallback.error.message }, { status: 500 });
+    if (fallback.error) return serverError(fallback.error);
     data = fallback.data;
   }
 
@@ -175,7 +177,8 @@ async function processSingleSubmission(params: {
     .maybeSingle();
 
   if (claimError) {
-    return { ok: false, status: 500, error: claimError.message };
+    console.error("[admin/submissions] claim failed:", claimError.message);
+    return { ok: false, status: 500, error: "تعذر تنفيذ العملية، حاول مرة أخرى." };
   }
   if (!claimed) {
     return { ok: false, status: 409, error: "تمت مراجعة هذه المساهمة مسبقًا أو تتم مراجعتها الآن" };
@@ -204,7 +207,12 @@ async function processSingleSubmission(params: {
 
       if (courseError) {
         await rollbackClaim();
-        return { ok: false, status: 500, error: courseError.message };
+        console.error("[admin/submissions] course insert failed:", courseError.message);
+        return {
+          ok: false,
+          status: courseError.code === "23505" ? 409 : 500,
+          error: courseError.code === "23505" ? "يوجد مساق بنفس البيانات بالفعل." : "تعذر إضافة المساق، حاول مرة أخرى.",
+        };
       }
 
       await logActivity({
@@ -254,11 +262,13 @@ async function processSingleSubmission(params: {
 
       if (updateMatError) {
         await rollbackClaim();
-        return { ok: false, status: 500, error: updateMatError.message };
+        console.error("[admin/submissions] material update failed:", updateMatError.message);
+        return { ok: false, status: 500, error: "تعذر تحديث المادة، حاول مرة أخرى." };
       }
 
+      // نحذف الملف القديم فقط إن لم يعد مستعملًا في أي مادة أو مساهمة أخرى
       if (oldMat?.drive_link && oldMat.drive_link !== claimed.drive_link) {
-        await deleteDriveFileByLink(oldMat.drive_link).catch(() => {});
+        await deleteDriveFileIfUnreferenced(oldMat.drive_link, { excludeSubmissionId: claimed.id }).catch(() => {});
       }
 
       await logActivity({
@@ -325,7 +335,8 @@ async function processSingleSubmission(params: {
         const retry = await supabaseAdmin.from("materials").insert(baseMatPayload).select().single();
         if (retry.error) {
           await rollbackClaim();
-          return { ok: false, status: 500, error: retry.error.message };
+          console.error("[admin/submissions] material insert failed:", retry.error.message);
+          return { ok: false, status: 500, error: "تعذر نشر المادة، حاول مرة أخرى." };
         }
         newMaterial = retry.data;
       }
@@ -347,9 +358,11 @@ async function processSingleSubmission(params: {
       });
     }
   } else {
-    // عند رفض المساهمة: نحذف ملفها من Google Drive إذا كان مرفوعًا لمجلد الموقع لمنع استهلاك المساحة وبقاء الملف عامًا
+    // عند رفض المساهمة: نحذف ملفها من Google Drive لمنع استهلاك المساحة وبقاء الملف عامًا —
+    // لكن فقط إذا لم تشر إليه مادة منشورة أو مساهمة أخرى (كان الرفض يحذف ملف مادة منشورة
+    // إذا أشارت إليه المساهمة المرفوضة، وهذا يكسر المادة الأصلية).
     if (claimed.drive_link) {
-      await deleteDriveFileByLink(claimed.drive_link).catch(() => {});
+      await deleteDriveFileIfUnreferenced(claimed.drive_link, { excludeSubmissionId: claimed.id }).catch(() => {});
     }
 
     const itemTitle = claimed.title_ar ?? claimed.suggested_course_name ?? "مساهمة";
@@ -378,19 +391,26 @@ export async function PATCH(req: NextRequest) {
   const actor = await requireStaff(req);
   if (!actor) return NextResponse.json({ error: "غير مصرح" }, { status: 401 });
 
-  const body = await req.json();
-  const { id, ids, action, admin_note, overrides } = body;
+  const body = await safeJson<Record<string, any>>(req);
+  if (!body) return badRequest();
+  const { id, ids, action, overrides } = body;
+  const admin_note = typeof body.admin_note === "string" ? cleanText(body.admin_note, 500) : undefined;
 
   if (!["approve", "reject"].includes(action)) {
     return NextResponse.json({ error: "طلب غير صالح" }, { status: 400 });
   }
 
-  // دعم القبول أو الرفض الجماعي (Bulk Approve/Reject)
+  // دعم القبول أو الرفض الجماعي (Bulk Approve/Reject) بحد أقصى حتى لا يُستعمل لإغراق السيرفر
   if (Array.isArray(ids) && ids.length > 0) {
+    if (ids.length > 50) return badRequest("الحد الأقصى للعمليات الجماعية 50 طلبًا في المرة الواحدة");
     const results = [];
     for (const singleId of ids) {
+      if (!isUuid(singleId)) {
+        results.push({ id: singleId, ok: false, error: "معرّف غير صالح" });
+        continue;
+      }
       const res = await processSingleSubmission({
-        id: String(singleId),
+        id: singleId,
         action,
         admin_note,
         actor,
@@ -401,12 +421,43 @@ export async function PATCH(req: NextRequest) {
   }
 
   if (!id) return NextResponse.json({ error: "معرّف المساهمة مطلوب" }, { status: 400 });
+  if (!isUuid(id)) return badRequest("معرّف المساهمة غير صالح");
+
+  // نقبل من overrides حقولًا محددة فقط بأنواع محققة
+  const safeOverrides: Record<string, unknown> | undefined =
+    overrides && typeof overrides === "object"
+      ? {
+          title_ar: typeof overrides.title_ar === "string" ? cleanText(overrides.title_ar, 150) : undefined,
+          description_ar:
+            overrides.description_ar === null
+              ? null
+              : typeof overrides.description_ar === "string"
+              ? cleanText(overrides.description_ar, 1500)
+              : undefined,
+          course_id: isUuid(overrides.course_id) ? overrides.course_id : undefined,
+          academic_year:
+            overrides.academic_year === null
+              ? null
+              : typeof overrides.academic_year === "string"
+              ? cleanText(overrides.academic_year, 20)
+              : undefined,
+          semester:
+            overrides.semester === null
+              ? null
+              : typeof overrides.semester === "string" && ["first", "second", "summer"].includes(overrides.semester)
+              ? overrides.semester
+              : undefined,
+          is_verified: typeof overrides.is_verified === "boolean" ? overrides.is_verified : undefined,
+        }
+      : undefined;
+
+  if (overrides?.course_id && !isUuid(overrides.course_id)) return badRequest("المساق المختار غير صالح");
 
   const result = await processSingleSubmission({
-    id: String(id),
+    id,
     action,
     admin_note,
-    overrides,
+    overrides: safeOverrides as Parameters<typeof processSingleSubmission>[0]["overrides"],
     actor,
   });
 

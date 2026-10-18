@@ -86,6 +86,10 @@ function putToSession(
   signal?: { aborted: boolean }
 ): Promise<PutResult> {
   return new Promise((resolve, reject) => {
+    if (!url.startsWith("https://www.googleapis.com/upload/drive/")) {
+      reject(new Error("رابط الرفع غير موثوق"));
+      return;
+    }
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", url);
     xhr.setRequestHeader("Content-Range", contentRange);

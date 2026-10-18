@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireStaff } from "@/lib/auth";
 import { getDriveStorageQuota } from "@/lib/googleDrive";
+import { serverError } from "@/lib/security";
 
 type CourseJoin = { university_id?: string } | { university_id?: string }[] | null;
 
@@ -32,10 +33,7 @@ export async function GET(req: NextRequest) {
       includeQuota ? getDriveStorageQuota() : Promise.resolve(null),
     ]);
     if (subsRes.error || docsRes.error) {
-      return NextResponse.json(
-        { error: subsRes.error?.message || docsRes.error?.message || "تعذر حساب الطلبات" },
-        { status: 500 }
-      );
+      return serverError(subsRes.error || docsRes.error, "تعذر حساب الطلبات");
     }
     submissions = subsRes.count ?? 0;
     doctorSubmissions = docsRes.count ?? 0;
@@ -59,10 +57,7 @@ export async function GET(req: NextRequest) {
         .eq("status", "open"),
     ]);
     if (subsRes.error || docsRes.error) {
-      return NextResponse.json(
-        { error: subsRes.error?.message || docsRes.error?.message || "تعذر حساب الطلبات" },
-        { status: 500 }
-      );
+      return serverError(subsRes.error || docsRes.error, "تعذر حساب الطلبات");
     }
 
     submissions = (subsRes.data ?? []).filter((r) => {

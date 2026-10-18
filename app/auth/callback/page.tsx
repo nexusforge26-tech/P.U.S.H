@@ -3,13 +3,7 @@
 import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
-
-function sanitizeNextPath(raw: string | null): string {
-  if (!raw) return "/";
-  const trimmed = raw.trim();
-  if (!trimmed.startsWith("/") || trimmed.startsWith("//")) return "/";
-  return trimmed;
-}
+import { sanitizeNextPath } from "@/lib/safeRedirect";
 
 export default function AuthCallback() {
   return (
