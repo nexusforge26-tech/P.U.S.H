@@ -4,7 +4,6 @@ import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { sanitizeNextPath } from "@/lib/safeRedirect";
-import { isProfileComplete } from "@/lib/profile";
 
 export default function AuthCallback() {
   return (
@@ -32,7 +31,8 @@ function CallbackHandler() {
     const begin = (accessToken: string) => {
       if (started) return;
       started = true;
-      void finishWithOnboarding(accessToken);
+      void accessToken;
+      finish();
     };
 
     const resolveDestination = () => {
@@ -50,38 +50,6 @@ function CallbackHandler() {
       if (done) return;
       done = true;
       router.replace(resolveDestination());
-    };
-
-    // أول تسجيل: نحوّل المستخدم مباشرة إلى قسم «بياناتي» في صفحة الحساب (مرة واحدة فقط).
-    // النافذة المنبثقة تُؤجَّل إلى أول فتح لاحق للموقع إن بقيت البيانات ناقصة.
-    const finishWithOnboarding = async (accessToken: string) => {
-      try {
-        const res = await fetch("/api/me", { headers: { Authorization: `Bearer ${accessToken}` } });
-        if (res.ok) {
-          const { profile } = await res.json();
-          if (profile && !profile.onboarding_redirected_at && !isProfileComplete(profile)) {
-            await fetch("/api/profile/prompted", {
-              method: "POST",
-              headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-              body: JSON.stringify({ step: "onboarding" }),
-            }).catch(() => {});
-            try {
-              sessionStorage.setItem("push_onboarding_session", "1");
-              sessionStorage.removeItem("push_auth_next");
-            } catch {
-              // تجاهل
-            }
-            if (!done) {
-              done = true;
-              router.replace("/account#my-data");
-            }
-            return;
-          }
-        }
-      } catch {
-        // أي فشل: نتابع الوجهة العادية
-      }
-      finish();
     };
 
     const run = async () => {

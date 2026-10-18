@@ -448,7 +448,7 @@ begin
   get diagnostics inserted = row_count;
 
   if inserted > 0 then
-    update materials m set helpful_count = m.helpful_count + 1 where m.id = p_material_id;
+    update materials set helpful_count = helpful_count + 1 where id = p_material_id;
   end if;
 
   return query

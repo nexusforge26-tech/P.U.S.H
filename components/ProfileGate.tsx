@@ -1,58 +1,27 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import ProfileForm from "@/components/ProfileForm";
 import { getUniversities } from "@/lib/data";
 import { isProfileComplete } from "@/lib/profile";
-import { authFetch } from "@/lib/authFetch";
 import type { University } from "@/lib/types";
 
-// نافذة تظهر **مرة واحدة فقط** عند أول فتح للموقع لمن لم يُكمل بياناته سابقًا (يُسجَّل أول عرض في profiles.profile_prompted_at).
-// المستخدم الجديد لا يراها عند التسجيل: يُحوَّل مباشرة إلى «حسابي» (قسم بياناتي)، وتُؤجَّل النافذة إلى أول فتح لاحق للموقع.
-// أثناء عرضها تعطّل الصفحة خلفها (inert)، ولا تظهر بعد ذلك عند كل دخول؛ ومن لم يكملها يكملها من «حسابي».
-// الحماية الفعلية تبقى في الـ API (rejectIfProfileIncomplete): لا مساهمات ولا رفع قبل اكتمال البيانات.
+// نافذة إجبارية لكل حساب لم يُكمل بياناته (المسجَّلون الجدد والقدامى معًا): لا زر «لاحقًا» ولا إغلاق،
+// وتبقى تظهر في كل صفحة (عدا صفحات تسجيل الدخول) حتى تُحفظ البيانات كاملة، ثم تختفي تلقائيًا.
+// أثناء عرضها تعطّل الصفحة خلفها (inert) ويُمنع التمرير. الخيار الوحيد الآخر هو تسجيل الخروج.
+// الحماية الفعلية تبقى أيضًا في الـ API (rejectIfProfileIncomplete): لا مساهمات ولا رفع قبل اكتمال البيانات.
 export default function ProfileGate() {
   const { user, profile, loading, signOut } = useAuth();
   const [universities, setUniversities] = useState<University[] | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
-  const [dismissed, setDismissed] = useState(false);
-  const promptedRef = useRef(false);
   const pathname = usePathname();
-
-  // لا تظهر أثناء تسجيل الدخول/التحويل، ولا في الجلسة التي حُوِّل فيها المستخدم الجديد إلى «حسابي»
-  // (حتى لا يرى النموذجين معًا) — تظهر عند أول فتح لاحق للموقع.
-  const [sameOnboardingSession, setSameOnboardingSession] = useState(false);
-  useEffect(() => {
-    try {
-      setSameOnboardingSession(sessionStorage.getItem("push_onboarding_session") === "1");
-    } catch {
-      setSameOnboardingSession(false);
-    }
-  }, [pathname]);
   const onAuthPage = pathname?.startsWith("/auth") ?? false;
 
-  // تظهر فقط إن كانت البيانات ناقصة ولم تُعرض لهذا الحساب من قبل، وبعد أن تم توجيهه إلى «حسابي» مرة
-  const needsProfile =
-    !loading &&
-    !!user &&
-    !!profile &&
-    !isProfileComplete(profile) &&
-    !profile.profile_prompted_at &&
-    !!profile.onboarding_redirected_at &&
-    !sameOnboardingSession &&
-    !onAuthPage &&
-    !dismissed;
-
-  // نسجّل العرض الأول في السيرفر فورًا (حتى لو أُغلق المتصفح)، فلا تتكرر النافذة لاحقًا
-  useEffect(() => {
-    if (!needsProfile || promptedRef.current) return;
-    promptedRef.current = true;
-    authFetch("/api/profile/prompted", { method: "POST" }).catch(() => {});
-  }, [needsProfile]);
+  const needsProfile = !loading && !!user && !!profile && !isProfileComplete(profile) && !onAuthPage;
 
   useEffect(() => {
     if (!needsProfile) return;
@@ -114,7 +83,7 @@ export default function ProfileGate() {
           أكمل بياناتك للمتابعة
         </h2>
         <p className="mt-3 text-sm leading-7 text-ink/60">
-          جميع الحقول التالية مطلوبة لإرسال المساهمات ورفع الملفات، ولن تظهر هذه النافذة مرة أخرى (يمكنك الإكمال لاحقًا من صفحة حسابي). ستبقى بياناتك خاصة ولا تظهر للزوار،
+          هذه الخطوة إلزامية ولا يمكن تخطيها: أكمل جميع الحقول التالية لتتمكن من استخدام الموقع. ستبقى بياناتك خاصة ولا تظهر للزوار،
           ويطّلع عليها مسؤولو المنصة فقط.
         </p>
 
@@ -154,13 +123,6 @@ export default function ProfileGate() {
         </div>
 
         <div className="mt-5 flex gap-2">
-          <button
-            type="button"
-            onClick={() => setDismissed(true)}
-            className="flex-1 rounded-2xl border border-olive/10 px-5 py-3 text-sm font-bold text-ink/60 hover:bg-olive/5"
-          >
-            لاحقًا (من صفحة حسابي)
-          </button>
           <button
             type="button"
             onClick={logout}
