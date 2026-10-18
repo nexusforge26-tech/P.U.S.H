@@ -25,7 +25,7 @@ export function normalizeArabic(input: string): string {
  * عندما لا يكون عمود search_text المطبّع متاحًا بعد.
  */
 export function buildArabicSearchVariants(rawQuery: string): string[] {
-  const clean = rawQuery.replace(/[,()%*\\]/g, " ").replace(/\s+/g, " ").trim();
+  const clean = rawQuery.replace(/[,()%*\\"]/g, " ").replace(/\s+/g, " ").trim();
   if (!clean) return [];
 
   const normalized = normalizeArabic(clean);

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getRequestUser, type UserProfile } from "@/lib/auth";
+import { getRequestUser, invalidateAccountCache, type UserProfile } from "@/lib/auth";
+import { safeJson } from "@/lib/security";
 import { validateProfileInput } from "@/lib/profile";
 
 // حفظ بيانات الملف الشخصي (الاسم، الهاتف، الواتساب، الجامعة).
@@ -10,12 +11,8 @@ export async function PUT(req: NextRequest) {
   const account = await getRequestUser(req);
   if (!account) return NextResponse.json({ error: "يجب تسجيل الدخول أولًا" }, { status: 401 });
 
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "بيانات غير صالحة" }, { status: 400 });
-  }
+  const body = await safeJson<Record<string, unknown>>(req, 10_000);
+  if (!body) return NextResponse.json({ error: "بيانات غير صالحة" }, { status: 400 });
 
   const checked = validateProfileInput((body ?? {}) as Record<string, unknown>);
   if (!checked.valid) {
@@ -55,6 +52,7 @@ export async function PUT(req: NextRequest) {
   );
   if (error) return NextResponse.json({ error: "تعذر حفظ البيانات، حاول مرة أخرى" }, { status: 500 });
 
+  invalidateAccountCache(account.user.id);
   const profile: UserProfile = { ...account.profile, full_name, phone, whatsapp, university_id };
   return NextResponse.json({ profile });
 }

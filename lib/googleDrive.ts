@@ -132,7 +132,25 @@ export interface DriveFileMetadata {
 /**
  * يستعلم عن بيانات ملف في Google Drive عبر معرّفه.
  */
+// كاش قصير لبيانات الملف: كل معاينة/تنزيل كان يستدعي Drive API من جديد (مئات الملّي ثانية لكل طلب).
+const metadataCache = new Map<string, { exp: number; value: DriveFileMetadata }>();
+const folderCache = new Map<string, { exp: number; value: DriveFileMetadata }>();
+const METADATA_TTL_MS = 10 * 60 * 1000;
+
+function cacheGet(map: Map<string, { exp: number; value: DriveFileMetadata }>, key: string) {
+  const hit = map.get(key);
+  if (hit && hit.exp > Date.now()) return hit.value;
+  if (hit) map.delete(key);
+  return null;
+}
+function cacheSet(map: Map<string, { exp: number; value: DriveFileMetadata }>, key: string, value: DriveFileMetadata) {
+  if (map.size > 2000) map.clear();
+  map.set(key, { exp: Date.now() + METADATA_TTL_MS, value });
+}
+
 export async function getDriveFileMetadata(fileId: string): Promise<DriveFileMetadata | null> {
+  const cached = cacheGet(metadataCache, fileId);
+  if (cached) return cached;
   try {
     const accessToken = await getDriveAccessToken();
     const res = await fetch(
@@ -143,7 +161,9 @@ export async function getDriveFileMetadata(fileId: string): Promise<DriveFileMet
       }
     );
     if (!res.ok) return null;
-    return (await res.json()) as DriveFileMetadata;
+    const meta = (await res.json()) as DriveFileMetadata;
+    if (meta?.id) cacheSet(metadataCache, fileId, meta);
+    return meta;
   } catch {
     return null;
   }
@@ -157,6 +177,8 @@ export async function getDriveFileMetadata(fileId: string): Promise<DriveFileMet
 export async function resolveFileFromDriveFolder(
   folderId: string
 ): Promise<DriveFileMetadata | null> {
+  const cachedFolder = cacheGet(folderCache, folderId);
+  if (cachedFolder) return cachedFolder;
   try {
     const accessToken = await getDriveAccessToken();
     const q = `'${folderId.replace(/'/g, "")}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder' and mimeType != 'text/markdown' and name != 'معلومات المادة.md'`;
@@ -170,7 +192,9 @@ export async function resolveFileFromDriveFolder(
     });
     if (!res.ok) return null;
     const data = (await res.json()) as { files?: DriveFileMetadata[] };
-    return data.files?.[0] ?? null;
+    const first = data.files?.[0] ?? null;
+    if (first) cacheSet(folderCache, folderId, first);
+    return first;
   } catch {
     return null;
   }

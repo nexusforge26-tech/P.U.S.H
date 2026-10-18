@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { isProfileComplete } from "@/lib/profile";
@@ -20,6 +21,8 @@ export interface UserProfile {
   managed_university_id: string | null;
   /** وقت أول عرض لنافذة إكمال البيانات (تظهر مرة واحدة فقط لكل حساب). */
   profile_prompted_at: string | null;
+  /** وقت تحويل المستخدم الجديد مباشرة إلى «حسابي» بعد أول تسجيل (مرة واحدة). */
+  onboarding_redirected_at: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -34,22 +37,68 @@ export {
 } from "@/lib/roles";
 import { isConfiguredOwnerEmail } from "@/lib/roles";
 
+// ذاكرة مؤقتة قصيرة (10 ثوانٍ) لنتيجة التحقق من الجلسة: كل طلب API كان يتطلب رحلتين إلى Supabase
+// (التحقق من الرمز ثم قراءة الملف الشخصي)، ولوحة الإدارة وصفحة الحساب ترسل عدة طلبات متوازية.
+// مدتها قصيرة عمدًا حتى لا يتأخر أثر تغيير الدور أو إلغاء الجلسة، ونُفرغها فور حفظ الملف الشخصي أو تغيير الدور.
+const ACCOUNT_CACHE_TTL_MS = 10_000;
+const accountCache = new Map<string, { exp: number; userId: string; value: AccountResult }>();
+
+export function invalidateAccountCache(userId: string) {
+  for (const [k, v] of accountCache.entries()) {
+    if (v.userId === userId) accountCache.delete(k);
+  }
+}
+
+type AccountResult = NonNullable<Awaited<ReturnType<typeof loadAccount>>>;
+
 export async function getRequestUser(req: NextRequest) {
   const auth = req.headers.get("authorization");
   const token = auth?.startsWith("Bearer ") ? auth.slice(7).trim() : "";
   if (!token || token.length > 4096) return null;
 
+  const key = crypto.createHash("sha256").update(token).digest("hex");
+  const hit = accountCache.get(key);
+  if (hit && hit.exp > Date.now()) return hit.value;
+
+  const value = await loadAccount(token);
+  if (!value) {
+    accountCache.delete(key);
+    return null;
+  }
+  accountCache.set(key, { exp: Date.now() + ACCOUNT_CACHE_TTL_MS, userId: value.user.id, value });
+  if (accountCache.size > 2000) {
+    const now = Date.now();
+    for (const [k, v] of accountCache.entries()) if (v.exp <= now) accountCache.delete(k);
+  }
+  return value;
+}
+
+async function loadAccount(token: string) {
   const {
     data: { user },
     error,
   } = await supabaseAdmin.auth.getUser(token);
   if (error || !user) return null;
 
-  const { data: profile } = await supabaseAdmin
+  const BASE_COLUMNS =
+    "id,email,full_name,avatar_url,role,phone,whatsapp,university_id,managed_university_id,profile_prompted_at";
+  type ProfileRow = Partial<UserProfile> & { id: string };
+  let profile: ProfileRow | null = null;
+  let hasOnboardingColumn = true;
+
+  const primary = await supabaseAdmin
     .from("profiles")
-    .select("id,email,full_name,avatar_url,role,phone,whatsapp,university_id,managed_university_id,profile_prompted_at")
+    .select(`${BASE_COLUMNS},onboarding_redirected_at`)
     .eq("id", user.id)
     .maybeSingle();
+  if (primary.error) {
+    // العمود الجديد غير موجود بعد (لم يُنفَّذ الترحيل): نكمل بدونه حتى لا تتعطل الصلاحيات
+    hasOnboardingColumn = false;
+    const fallback = await supabaseAdmin.from("profiles").select(BASE_COLUMNS).eq("id", user.id).maybeSingle();
+    profile = (fallback.data as ProfileRow | null) ?? null;
+  } else {
+    profile = (primary.data as ProfileRow | null) ?? null;
+  }
 
   // مصدر الحقيقة للبريد هو حساب المصادقة (auth.users) لا نسخة الملف الشخصي.
   const resolvedEmail = user.email ?? profile?.email ?? null;
@@ -59,7 +108,7 @@ export async function getRequestUser(req: NextRequest) {
   const shouldBeOwner = emailVerified && isConfiguredOwnerEmail(resolvedEmail);
 
   // إذا كان البريد مضبوطًا في OWNER_EMAIL ولم يكن دوره owner بعد، نرقّيه تلقائيًا.
-  let role: UserRole = isUserRole(profile?.role) ? profile.role : "user";
+  let role: UserRole = isUserRole(profile?.role) ? (profile?.role as UserRole) : "user";
   if (shouldBeOwner && role !== "owner") {
     role = "owner";
     await supabaseAdmin
@@ -89,6 +138,10 @@ export async function getRequestUser(req: NextRequest) {
       university_id: profile?.university_id ?? null,
       managed_university_id: role === "uni_admin" ? profile?.managed_university_id ?? null : null,
       profile_prompted_at: profile?.profile_prompted_at ?? null,
+      // بدون العمود (قبل الترحيل) نعتبر المستخدم «مُوجَّهًا» حتى لا يتعطل تدفق النافذة
+      onboarding_redirected_at: hasOnboardingColumn
+        ? profile?.onboarding_redirected_at ?? null
+        : profile?.profile_prompted_at ?? new Date(0).toISOString(),
     } satisfies UserProfile,
   };
 }

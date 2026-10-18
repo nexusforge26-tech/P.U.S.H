@@ -8,6 +8,7 @@ import {
 } from "@/lib/auth";
 import { isUserRole } from "@/lib/roles";
 import { logActivity } from "@/lib/activity";
+import { invalidateAccountCache } from "@/lib/auth";
 import { badRequest, isUuid, safeJson, sanitizeFilterTerm, serverError } from "@/lib/security";
 
 const PROFILE_COLUMNS =
@@ -133,6 +134,7 @@ export async function PATCH(req: NextRequest) {
     .single();
 
   if (error) return serverError(error);
+  invalidateAccountCache(id);
 
   await logActivity({
     actor,
@@ -198,6 +200,7 @@ export async function DELETE(req: NextRequest) {
 
   const { error } = await supabaseAdmin.auth.admin.deleteUser(id);
   if (error) return serverError(error);
+  invalidateAccountCache(id);
 
   await logActivity({
     actor,

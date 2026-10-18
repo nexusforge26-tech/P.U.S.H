@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
 import ProfileForm from "@/components/ProfileForm";
 import { getUniversities } from "@/lib/data";
@@ -8,7 +9,8 @@ import { isProfileComplete } from "@/lib/profile";
 import { authFetch } from "@/lib/authFetch";
 import type { University } from "@/lib/types";
 
-// نافذة تظهر **مرة واحدة فقط** لكل حساب لم يُكمل بياناته (يُسجَّل أول عرض في profiles.profile_prompted_at).
+// نافذة تظهر **مرة واحدة فقط** عند أول فتح للموقع لمن لم يُكمل بياناته سابقًا (يُسجَّل أول عرض في profiles.profile_prompted_at).
+// المستخدم الجديد لا يراها عند التسجيل: يُحوَّل مباشرة إلى «حسابي» (قسم بياناتي)، وتُؤجَّل النافذة إلى أول فتح لاحق للموقع.
 // أثناء عرضها تعطّل الصفحة خلفها (inert)، ولا تظهر بعد ذلك عند كل دخول؛ ومن لم يكملها يكملها من «حسابي».
 // الحماية الفعلية تبقى في الـ API (rejectIfProfileIncomplete): لا مساهمات ولا رفع قبل اكتمال البيانات.
 export default function ProfileGate() {
@@ -19,10 +21,31 @@ export default function ProfileGate() {
 
   const [dismissed, setDismissed] = useState(false);
   const promptedRef = useRef(false);
+  const pathname = usePathname();
 
-  // تظهر فقط إن كانت البيانات ناقصة ولم تُعرض لهذا الحساب من قبل
+  // لا تظهر أثناء تسجيل الدخول/التحويل، ولا في الجلسة التي حُوِّل فيها المستخدم الجديد إلى «حسابي»
+  // (حتى لا يرى النموذجين معًا) — تظهر عند أول فتح لاحق للموقع.
+  const [sameOnboardingSession, setSameOnboardingSession] = useState(false);
+  useEffect(() => {
+    try {
+      setSameOnboardingSession(sessionStorage.getItem("push_onboarding_session") === "1");
+    } catch {
+      setSameOnboardingSession(false);
+    }
+  }, [pathname]);
+  const onAuthPage = pathname?.startsWith("/auth") ?? false;
+
+  // تظهر فقط إن كانت البيانات ناقصة ولم تُعرض لهذا الحساب من قبل، وبعد أن تم توجيهه إلى «حسابي» مرة
   const needsProfile =
-    !loading && !!user && !!profile && !isProfileComplete(profile) && !profile.profile_prompted_at && !dismissed;
+    !loading &&
+    !!user &&
+    !!profile &&
+    !isProfileComplete(profile) &&
+    !profile.profile_prompted_at &&
+    !!profile.onboarding_redirected_at &&
+    !sameOnboardingSession &&
+    !onAuthPage &&
+    !dismissed;
 
   // نسجّل العرض الأول في السيرفر فورًا (حتى لو أُغلق المتصفح)، فلا تتكرر النافذة لاحقًا
   useEffect(() => {

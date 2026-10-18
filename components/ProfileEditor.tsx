@@ -18,10 +18,18 @@ export default function ProfileEditor() {
       .catch(() => setUniversities([]));
   }, []);
 
+  const hasProfile = Boolean(profile);
+  useEffect(() => {
+    // بعد أول تسجيل نصل هنا عبر /account#my-data: ننزل إلى النموذج مباشرة
+    if (hasProfile && typeof window !== "undefined" && window.location.hash === "#my-data") {
+      document.getElementById("my-data")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [hasProfile]);
+
   if (!profile) return null;
 
   return (
-    <section className="mt-7 rounded-[28px] border border-olive/10 bg-white p-6 shadow-card">
+    <section id="my-data" className="scroll-mt-24 mt-7 rounded-[28px] border border-olive/10 bg-white p-6 shadow-card">
       <h2 className="font-display text-2xl font-bold text-olive-dark">بياناتي</h2>
       <p className="mt-1 text-sm text-ink/45">
         هذه البيانات إلزامية ولا تظهر للزوار، ويطّلع عليها مسؤولو المنصة فقط.

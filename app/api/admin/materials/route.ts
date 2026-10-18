@@ -111,7 +111,7 @@ export async function GET(req: NextRequest) {
           .select("id", { count: "exact", head: true })
           .eq("is_featured", true)
       ),
-      scoped(supabaseAdmin.from("materials").select("downloads_count")),
+      Promise.resolve(supabaseAdmin.rpc("sum_downloads", { p_university_id: scope ?? null })),
       scope
         ? supabaseAdmin.from("universities").select("id", { count: "exact", head: true }).eq("id", scope)
         : supabaseAdmin.from("universities").select("id", { count: "exact", head: true }),
@@ -124,12 +124,18 @@ export async function GET(req: NextRequest) {
     materialsResult = await buildQuery(selectFallback);
   }
   if (materialsResult.error) return serverError(materialsResult.error);
-  if (downloadsResult.error) return serverError(downloadsResult.error);
 
-  const downloads = (downloadsResult.data ?? []).reduce(
-    (sum: number, item: { downloads_count: number | null }) => sum + Number(item.downloads_count ?? 0),
-    0
-  );
+  // المجموع يُحسب في قاعدة البيانات (كان يجلب downloads_count لكل المواد ويجمعها هنا، وهو بطيء وناقص بعد 1000 صف)
+  let downloads = 0;
+  if (!downloadsResult.error) {
+    downloads = Number(downloadsResult.data ?? 0);
+  } else {
+    const legacy = await scoped(supabaseAdmin.from("materials").select("downloads_count"));
+    downloads = ((legacy.data ?? []) as { downloads_count: number | null }[]).reduce(
+      (sum, item) => sum + Number(item.downloads_count ?? 0),
+      0
+    );
+  }
   const stats = {
     materials: totalResult.count ?? 0,
     featured: featuredResult.count ?? 0,

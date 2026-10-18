@@ -8,28 +8,27 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ user: null, profile: null, unreadNotifications: 0 }, { status: 401 });
   }
 
-  let unreadNotifications = 0;
-  try {
-    const { count } = await supabaseAdmin
-      .from("notifications")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", account.user.id)
-      .eq("is_read", false);
-    unreadNotifications = count ?? 0;
-  } catch {
-    unreadNotifications = 0;
-  }
+  // الاستعلامان مستقلان: ننفذهما بالتوازي بدل التتابع
+  const managedId =
+    account.profile.role === "uni_admin" ? account.profile.managed_university_id : null;
 
-  // اسم الجامعة التي يديرها «مسؤول الجامعة» لعرضها في الواجهة
-  let managedUniversityName: string | null = null;
-  if (account.profile.role === "uni_admin" && account.profile.managed_university_id) {
-    const { data: uni } = await supabaseAdmin
-      .from("universities")
-      .select("name_ar")
-      .eq("id", account.profile.managed_university_id)
-      .maybeSingle();
-    managedUniversityName = uni?.name_ar ?? null;
-  }
+  const [notifRes, uniRes] = await Promise.all([
+    Promise.resolve(
+      supabaseAdmin
+        .from("notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", account.user.id)
+        .eq("is_read", false)
+    ).catch(() => null),
+    managedId
+      ? Promise.resolve(
+          supabaseAdmin.from("universities").select("name_ar").eq("id", managedId).maybeSingle()
+        ).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+
+  const unreadNotifications = notifRes?.count ?? 0;
+  const managedUniversityName: string | null = uniRes?.data?.name_ar ?? null;
 
   return NextResponse.json({
     managedUniversityName,

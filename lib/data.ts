@@ -14,7 +14,7 @@ import {
   MOCK_MATERIALS,
   MOCK_DOCTORS,
 } from "./mockData";
-import { buildArabicSearchVariants, matchesArabicSearch } from "./arabic";
+import { buildArabicSearchVariants, matchesArabicSearch, normalizeArabic } from "./arabic";
 
 export const isSupabaseLive = (): boolean => {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -221,23 +221,29 @@ export async function getPlatformStats(): Promise<PlatformStats> {
     return { materials: 0, courses: 0, universities: 0, downloads: 0 };
   }
 
-  const [matRes, crsRes, uniRes, dlRes] = await Promise.all([
+  // استدعاء واحد لدالة قاعدة البيانات بدل 4 استعلامات (أحدها كان يجلب كل المواد لجمع التنزيلات)
+  const { data: statsJson, error: statsError } = await supabase.rpc("get_platform_stats");
+  if (!statsError && statsJson) {
+    const st = statsJson as Partial<PlatformStats>;
+    return {
+      materials: Number(st.materials ?? 0),
+      courses: Number(st.courses ?? 0),
+      universities: Number(st.universities ?? 0),
+      downloads: Number(st.downloads ?? 0),
+    };
+  }
+
+  // توافق مع قاعدة لم يُنفَّذ عليها الترحيل بعد
+  const [matRes, crsRes, uniRes] = await Promise.all([
     supabase.from("materials").select("id", { count: "exact", head: true }),
     supabase.from("courses").select("id", { count: "exact", head: true }),
     supabase.from("universities").select("id", { count: "exact", head: true }),
-    supabase.from("materials").select("downloads_count"),
   ]);
-
-  const downloads = (dlRes.data ?? []).reduce(
-    (sum, item: { downloads_count: number | null }) => sum + Number(item.downloads_count ?? 0),
-    0
-  );
-
   return {
     materials: matRes.count ?? 0,
     courses: crsRes.count ?? 0,
     universities: uniRes.count ?? 0,
-    downloads,
+    downloads: 0,
   };
 }
 
@@ -285,18 +291,12 @@ export async function searchMaterials(
     throw new Error("لم يتم ضبط اتصال قاعدة البيانات (Supabase)");
   }
 
-  // عند البحث النصي، نبحث في العنوان والوصف وأيضًا في اسم المساق ورمزه (مع تطبيع الحروف العربية).
-  let matchingCourseIds: string[] = [];
+  // البحث على عمود search_text المطبّع (يضم العنوان والوصف واسم المساق ورمزه وعليه فهرس trigram)
+  // بدل 6 صيغ × عمودين مع استعلام مساقات منفصل، وهو ما كان يسبب مسحًا كاملًا للجدول.
   const rawQuery = filters.q?.trim() ?? "";
-  const variants = buildArabicSearchVariants(rawQuery);
+  const searchTerm = normalizeArabic(buildArabicSearchVariants(rawQuery)[0] ?? "").slice(0, 80);
 
-  if (variants.length > 0) {
-    const courseOr = variants.flatMap((v) => [`name_ar.ilike.%${v}%`, `code.ilike.%${v}%`]).join(",");
-    const { data: matchedCourses } = await supabase.from("courses").select("id").or(courseOr).limit(100);
-    matchingCourseIds = (matchedCourses ?? []).map((c: { id: string }) => c.id);
-  }
-
-  const runQuery = async (selectStr: string, orderByHelpfulFallback = false) => {
+  const runQuery = async (selectStr: string, orderByHelpfulFallback = false, useSearchText = true) => {
     let query = supabase.from("materials").select(selectStr, { count: "exact" });
     if (filters.courseId) query = query.eq("course_id", filters.courseId);
     if (filters.universityId) query = query.eq("courses.university_id", filters.universityId);
@@ -304,15 +304,12 @@ export async function searchMaterials(
     if (filters.semester) query = query.eq("semester", filters.semester);
     if (filters.academicYear) query = query.eq("academic_year", filters.academicYear);
 
-    if (variants.length > 0) {
-      const textClauses = variants.flatMap((v) => [
-        `title_ar.ilike.%${v}%`,
-        `description_ar.ilike.%${v}%`,
-      ]);
-      if (matchingCourseIds.length > 0) {
-        textClauses.push(`course_id.in.(${matchingCourseIds.join(",")})`);
-      }
-      query = query.or(textClauses.join(","));
+    if (searchTerm) {
+      query = query.or(
+        useSearchText
+          ? `search_text.ilike.%${searchTerm}%,title_ar.ilike.%${searchTerm}%`
+          : `title_ar.ilike.%${searchTerm}%,description_ar.ilike.%${searchTerm}%`
+      );
     }
 
     const page = filters.page ?? 1;
@@ -334,7 +331,7 @@ export async function searchMaterials(
   let { data, count, error } = await runQuery(MATERIAL_SELECT);
   if (error) {
     // في حال لم يتم تطبيق ترحيل الأعمدة الجديدة بعد، نستخدم الاستعلام الأساسي
-    const fallback = await runQuery(MATERIAL_SELECT_FALLBACK, true);
+    const fallback = await runQuery(MATERIAL_SELECT_FALLBACK, true, false);
     if (fallback.error) throw fallback.error;
     data = fallback.data;
     count = fallback.count;
