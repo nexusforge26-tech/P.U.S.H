@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { authFetch } from "@/lib/authFetch";
+import { useAuth } from "@/components/AuthProvider";
 import { REPORT_REASON_LABELS, type ReportReason } from "@/lib/types";
 import { INPUT_CLASS, SELECT_CLASS } from "@/lib/styles";
 
@@ -18,6 +19,7 @@ export default function MaterialActions({
   materialTitle,
   initialHelpfulCount = 0,
 }: Props) {
+  const { user, loading: authLoading } = useAuth();
   const [helpfulCount, setHelpfulCount] = useState(initialHelpfulCount);
   const [voted, setVoted] = useState(false);
   const [bookmarked, setBookmarked] = useState(false);
@@ -41,8 +43,19 @@ export default function MaterialActions({
     }
   }, [materialId]);
 
+  // أي إجراء (تقييم، بلاغ) يتطلب حسابًا: نوجّه الزائر لتسجيل الدخول ثم نعيده لنفس الصفحة
+  function redirectToLogin() {
+    const here = `${window.location.pathname}${window.location.search}`;
+    window.location.href = `/auth?next=${encodeURIComponent(here)}`;
+  }
+  const mustLogin = !authLoading && !user;
+
   async function handleHelpful() {
     if (voted) return;
+    if (mustLogin) {
+      redirectToLogin();
+      return;
+    }
     setVoted(true);
     setHelpfulCount((c) => c + 1);
     try {
@@ -55,7 +68,7 @@ export default function MaterialActions({
         localStorage.removeItem(`push_voted_${materialId}`);
         setVoted(false);
         setHelpfulCount((c) => Math.max(0, c - 1));
-        window.location.href = `/auth?next=${encodeURIComponent(window.location.pathname)}`;
+        redirectToLogin();
         return;
       }
       if (res.ok) {
@@ -109,6 +122,10 @@ export default function MaterialActions({
           details,
         }),
       });
+      if (res.status === 401) {
+        redirectToLogin();
+        return;
+      }
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setReportErr(data.error || "تعذر إرسال البلاغ");
@@ -137,7 +154,7 @@ export default function MaterialActions({
           }`}
         >
           <span>👍</span>
-          <span>{voted ? "شكرًا لتقييمك!" : "مفيد"}</span>
+          <span>{voted ? "شكرًا لتقييمك!" : mustLogin ? "مفيد (سجّل الدخول)" : "مفيد"}</span>
           <span className="rounded-full bg-olive/10 px-2 py-0.5 text-[11px] font-black text-olive-dark">
             {helpfulCount}
           </span>
@@ -159,6 +176,10 @@ export default function MaterialActions({
         <button
           type="button"
           onClick={() => {
+            if (mustLogin) {
+              redirectToLogin();
+              return;
+            }
             setReportOpen(true);
             setReportMsg("");
             setReportErr("");
@@ -166,7 +187,7 @@ export default function MaterialActions({
           className="inline-flex items-center gap-1.5 rounded-full border border-clay/20 bg-white px-4 py-2 text-xs font-bold text-clay-dark transition hover:bg-clay/5"
         >
           <span>⚑</span>
-          <span>أبلغ عن مشكلة</span>
+          <span>{mustLogin ? "سجّل الدخول للإبلاغ" : "أبلغ عن مشكلة"}</span>
         </button>
       </div>
 

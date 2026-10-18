@@ -5,10 +5,7 @@ import type { ReportReason } from "@/lib/types";
 import {
   badRequest,
   cleanText,
-  getClientIp,
-  hashIp,
   isUuid,
-  isValidEmail,
   rateLimit,
   safeJson,
   serverError,
@@ -25,12 +22,16 @@ const ALLOWED_REASONS = new Set<ReportReason>([
 
 export async function POST(req: NextRequest) {
   try {
+    // الإبلاغ يتطلب تسجيل الدخول (لا بلاغات مجهولة)
     const account = await getRequestUser(req);
-    const ip = getClientIp(req);
+    if (!account) {
+      return NextResponse.json(
+        { error: "سجّل الدخول لتتمكن من إرسال بلاغ", code: "AUTH_REQUIRED" },
+        { status: 401 }
+      );
+    }
 
-    // الإبلاغ متاح للزوار (روابط معطلة)، لذلك نقيّده بحد لكل مستخدم/عنوان لمنع إغراق لوحة الإدارة.
-    const subject = account ? `u:${account.user.id}` : `ip:${ip}`;
-    const limit = rateLimit(`report:${subject}`, account ? 15 : 5, 60 * 60 * 1000);
+    const limit = rateLimit(`report:u:${account.user.id}`, 15, 60 * 60 * 1000);
     if (!limit.ok) return tooManyRequests(limit.retryAfterSec, "أرسلت بلاغات كثيرة، يرجى المحاولة لاحقًا.");
 
     const body = await safeJson<Record<string, unknown>>(req, 20_000);
@@ -44,17 +45,8 @@ export async function POST(req: NextRequest) {
       return badRequest("بيانات البلاغ غير مكتملة");
     }
 
-    // بريد المُبلِّغ: للمسجّل نستخدم بريد حسابه ولا نثق بما يرسله العميل؛ للزائر نقبل بريدًا صالحًا فقط.
-    let reporterEmail: string | null = null;
-    if (account?.profile.email) {
-      reporterEmail = account.profile.email.slice(0, 150);
-    } else {
-      const provided = cleanText(body.reporter_email, 150).toLowerCase();
-      if (provided) {
-        if (!isValidEmail(provided)) return badRequest("صيغة البريد الإلكتروني غير صحيحة");
-        reporterEmail = provided;
-      }
-    }
+    // بريد المُبلِّغ من حسابه المسجّل ولا نثق بما يرسله العميل
+    const reporterEmail: string | null = account.profile.email ? account.profile.email.slice(0, 150) : null;
 
     const { data: material } = await supabaseAdmin
       .from("materials")
@@ -64,7 +56,7 @@ export async function POST(req: NextRequest) {
     if (!material) return NextResponse.json({ error: "المادة غير موجودة" }, { status: 404 });
 
     // منع تكرار نفس البلاغ المفتوح من نفس الحساب
-    if (account) {
+    {
       const { count } = await supabaseAdmin
         .from("material_reports")
         .select("id", { count: "exact", head: true })
@@ -77,21 +69,14 @@ export async function POST(req: NextRequest) {
 
     const payload = {
       material_id: materialId,
-      user_id: account?.user.id ?? null,
+      user_id: account.user.id,
       reporter_email: reporterEmail,
       reason,
       details: details || null,
       status: "open",
     };
 
-    // reporter_ip_hash عمود جديد (ترحيل 2026-10-18)؛ إن لم يكن موجودًا نعيد المحاولة بدونه.
-    let { error } = await supabaseAdmin
-      .from("material_reports")
-      .insert({ ...payload, reporter_ip_hash: account ? null : hashIp(ip) });
-    if (error) {
-      const retry = await supabaseAdmin.from("material_reports").insert(payload);
-      error = retry.error;
-    }
+    const { error } = await supabaseAdmin.from("material_reports").insert(payload);
 
     if (error) return serverError(error, "تعذر إرسال البلاغ");
 
