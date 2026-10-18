@@ -44,7 +44,7 @@ export default function ActivityLogTab() {
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-black tracking-[.16em] text-clay">AUDIT</p>
-          <h2 className="mt-1 font-display text-2xl font-bold text-olive-dark">سجل المنشورات</h2>
+          <h2 className="mt-1 font-display text-2xl font-bold text-olive-dark">سجل النشاط</h2>
           <p className="mt-1 text-sm text-ink/45">
             من أضاف أو نشر أو راجع ماذا ومتى. يظهر هذا السجل فقط للمسؤول والمالك.
           </p>
