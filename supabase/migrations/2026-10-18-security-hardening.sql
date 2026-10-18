@@ -37,7 +37,7 @@ begin
   get diagnostics inserted = row_count;
 
   if inserted > 0 then
-    update materials m set helpful_count = m.helpful_count + 1 where m.id = p_material_id;
+    update materials set helpful_count = helpful_count + 1 where id = p_material_id;
   end if;
 
   return query
@@ -91,7 +91,7 @@ alter table materials add constraint materials_len_check check (
 alter table doctor_submissions drop constraint if exists doctor_submissions_len_check;
 alter table doctor_submissions add constraint doctor_submissions_len_check check (
   char_length(full_name) <= 150 and char_length(email) <= 150
-  and char_length(coalesce(phone,'')) <= 40 and char_length(coalesce(office_location,'')) <= 150
+  and char_length(coalesce(office_location,'')) <= 150
   and cardinality(courses) <= 30
 ) not valid;
 

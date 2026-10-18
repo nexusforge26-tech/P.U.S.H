@@ -34,7 +34,6 @@ function SubmitDoctorForm() {
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
   const [office, setOffice] = useState("");
   const [universityId, setUniversityId] = useState("");
   const [courses, setCourses] = useState<string[]>([""]);
@@ -89,7 +88,6 @@ function SubmitDoctorForm() {
         if (!d) return;
         setFullName(d.full_name);
         setEmail(d.email);
-        setPhone(d.phone || "");
         setOffice(d.office_location || "");
         setUniversityId(d.university_id);
         setCourses(d.courses.length ? d.courses : [""]);
@@ -155,7 +153,6 @@ function SubmitDoctorForm() {
     const rows: { label: string; oldV: string; newV: string }[] = [
       { label: "الاسم الكامل", oldV: current.full_name, newV: fullName },
       { label: "البريد الإلكتروني", oldV: current.email, newV: email },
-      { label: "الرقم الخاص", oldV: current.phone || "—", newV: phone || "—" },
       { label: "موقع المكتب", oldV: current.office_location || "—", newV: office || "—" },
       { label: "الجامعة", oldV: oldUniName, newV: uniName },
       {
@@ -165,7 +162,7 @@ function SubmitDoctorForm() {
       },
     ];
     return rows.filter((r) => r.oldV !== r.newV);
-  }, [mode, current, fullName, email, phone, office, universityId, cleanedCourses, universities]);
+  }, [mode, current, fullName, email, office, universityId, cleanedCourses, universities]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -184,7 +181,6 @@ function SubmitDoctorForm() {
         target_doctor_id: mode === "edit" ? targetId : undefined,
         full_name: fullName,
         email,
-        phone,
         office_location: office,
         university_id: universityId,
         courses: cleanedCourses,
@@ -295,12 +291,6 @@ function SubmitDoctorForm() {
             </div>
           )}
 
-          <input
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="الرقم الخاص أو الداخلي (اختياري)"
-            className={INPUT_CLASS}
-          />
           <input
             value={office}
             onChange={(e) => setOffice(e.target.value)}

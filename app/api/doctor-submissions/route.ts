@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
   const { data, error } = await supabaseAdmin
     .from("doctor_submissions")
     .select(
-      "id,kind,target_doctor_id,full_name,email,phone,office_location,courses,status,admin_note,created_at,reviewed_at,universities:university_id(name_ar)"
+      "id,kind,target_doctor_id,full_name,email,office_location,courses,status,admin_note,created_at,reviewed_at,universities:university_id(name_ar)"
     )
     .eq("user_id", account.user.id)
     .order("created_at", { ascending: false })
@@ -76,7 +76,6 @@ export async function POST(req: NextRequest) {
 
   const cleanName = cleanText(body.full_name, 150);
   const cleanEmail = cleanText(body.email, 150).toLowerCase();
-  const cleanPhone = cleanText(body.phone, 30);
   const cleanOffice = cleanText(body.office_location, 150);
 
   if (!cleanName || !cleanEmail || !universityId || courses.length === 0) {
@@ -88,10 +87,6 @@ export async function POST(req: NextRequest) {
 
   if (!isValidEmail(cleanEmail)) {
     return NextResponse.json({ error: "صيغة البريد الإلكتروني غير صحيحة" }, { status: 400 });
-  }
-
-  if (cleanPhone && !/^[0-9+\-\s()\u0660-\u0669]{5,30}$/.test(cleanPhone)) {
-    return badRequest("رقم الهاتف غير صالح");
   }
 
   if (!isUuid(universityId)) return badRequest("الجامعة المختارة غير صالحة");
@@ -135,7 +130,6 @@ export async function POST(req: NextRequest) {
     target_doctor_id: kind === "edit" ? targetDoctorId : null,
     full_name: cleanName,
     email: cleanEmail,
-    phone: cleanPhone || null,
     office_location: cleanOffice || null,
     university_id: universityId,
     courses,

@@ -385,7 +385,7 @@ export interface DoctorFilters {
 }
 
 const DOCTOR_SELECT = `
-  id, full_name, email, phone, office_location, university_id, courses, created_at, updated_at,
+  id, full_name, email, office_location, university_id, courses, created_at, updated_at,
   universities:university_id ( name_ar )
 `;
 

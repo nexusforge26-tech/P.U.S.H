@@ -99,7 +99,6 @@ export default function DoctorSubmissionsTab({ onReviewed }: { onReviewed?: () =
           const fields: [string, string][] = [
             ["الاسم الكامل", x.full_name],
             ["البريد الإلكتروني", x.email],
-            ["الرقم الخاص", x.phone || "—"],
             ["موقع المكتب", x.office_location || "—"],
             ["الجامعة", x.university_name],
             ["المساقات", (x.courses || []).join("، ") || "—"],
@@ -109,7 +108,6 @@ export default function DoctorSubmissionsTab({ onReviewed }: { onReviewed?: () =
               ? {
                   "الاسم الكامل": x.current.full_name,
                   "البريد الإلكتروني": x.current.email,
-                  "الرقم الخاص": x.current.phone || "—",
                   "موقع المكتب": x.current.office_location || "—",
                   الجامعة: x.current.universities?.name_ar || "—",
                   المساقات: (x.current.courses || []).join("، ") || "—",

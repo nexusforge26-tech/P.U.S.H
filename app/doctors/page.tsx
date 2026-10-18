@@ -105,11 +105,6 @@ export default async function DoctorsPage({ searchParams }: Props) {
                     {d.email}
                   </a>
                 </p>
-                {d.phone && (
-                  <p className="flex items-center gap-2">
-                    <span className="text-ink/35">☎</span> {d.phone}
-                  </p>
-                )}
                 {d.office_location && (
                   <p className="flex items-center gap-2">
                     <span className="text-ink/35">⌂</span> {d.office_location}

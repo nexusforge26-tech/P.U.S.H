@@ -91,7 +91,6 @@ export interface Doctor {
   id: string;
   full_name: string;
   email: string;
-  phone: string | null;
   office_location: string | null;
   university_id: string;
   courses: string[];
@@ -112,7 +111,6 @@ export interface DoctorSubmission {
   target_doctor_id: string | null;
   full_name: string;
   email: string;
-  phone: string | null;
   office_location: string | null;
   university_id: string;
   courses: string[];

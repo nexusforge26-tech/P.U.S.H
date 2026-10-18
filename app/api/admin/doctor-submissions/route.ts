@@ -6,15 +6,15 @@ import { createUserNotification } from "@/lib/notifications";
 import { matchesArabicSearch } from "@/lib/arabic";
 import { badRequest, cleanText, isUuid, safeJson, serverError } from "@/lib/security";
 
-const select = `id,user_id,submitter_name,submitter_email,kind,target_doctor_id,full_name,email,phone,office_location,university_id,courses,status,admin_note,reviewed_by,reviewed_at,created_at,
+const select = `id,user_id,submitter_name,submitter_email,kind,target_doctor_id,full_name,email,office_location,university_id,courses,status,admin_note,reviewed_by,reviewed_at,created_at,
   profiles:user_id(email,full_name),
   universities:university_id(name_ar),
-  target_doctor:target_doctor_id(id,full_name,email,phone,office_location,courses,university_id,updated_at,universities:university_id(name_ar))`;
+  target_doctor:target_doctor_id(id,full_name,email,office_location,courses,university_id,updated_at,universities:university_id(name_ar))`;
 
-const selectFallback = `id,user_id,kind,target_doctor_id,full_name,email,phone,office_location,university_id,courses,status,admin_note,reviewed_by,reviewed_at,created_at,
+const selectFallback = `id,user_id,kind,target_doctor_id,full_name,email,office_location,university_id,courses,status,admin_note,reviewed_by,reviewed_at,created_at,
   profiles:user_id(email,full_name),
   universities:university_id(name_ar),
-  target_doctor:target_doctor_id(id,full_name,email,phone,office_location,courses,university_id,updated_at,universities:university_id(name_ar))`;
+  target_doctor:target_doctor_id(id,full_name,email,office_location,courses,university_id,updated_at,universities:university_id(name_ar))`;
 
 function flatten(row: Record<string, unknown>) {
   const profile = row.profiles as { email?: string; full_name?: string } | null;
@@ -160,7 +160,6 @@ export async function PATCH(req: NextRequest) {
     const fields = {
       full_name: submission.full_name,
       email: String(submission.email).trim().toLowerCase(),
-      phone: submission.phone,
       office_location: submission.office_location,
       university_id: submission.university_id,
       courses: submission.courses,
