@@ -1,6 +1,29 @@
 import Link from "next/link";
 import { MATERIAL_TYPE_LABELS } from "@/lib/types";
 
+const SOCIAL_LINKS = [
+  {
+    name: "إنستغرام",
+    href: "https://www.instagram.com/push.edu.ps",
+    icon: (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <rect x="3" y="3" width="18" height="18" rx="5" />
+        <circle cx="12" cy="12" r="4" />
+        <circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none" />
+      </svg>
+    ),
+  },
+  {
+    name: "فيسبوك",
+    href: "https://www.facebook.com/share/1JPa2s7XQ1/",
+    icon: (
+      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden="true">
+        <path d="M13.5 21v-7.5h2.6l.4-3h-3V8.6c0-.9.3-1.5 1.5-1.5h1.6V4.4c-.3 0-1.2-.1-2.3-.1-2.3 0-3.8 1.4-3.8 3.9v2.3H7.9v3h2.6V21h3z" />
+      </svg>
+    ),
+  },
+];
+
 export default function Footer() {
   return (
     <footer className="mt-10 bg-olive-dark text-parchment/80">
@@ -14,6 +37,26 @@ export default function Footer() {
               مبادرة طلابية تطوعية تجمع المعرفة الجامعية الفلسطينية في مكان واحد، لتكون المعلومة أقرب
               والطريق أوضح.
             </p>
+            <div className="mt-5">
+              <p className="text-xs font-bold text-parchment/50">تابعنا على</p>
+              <ul className="mt-3 flex items-center gap-3">
+                {SOCIAL_LINKS.map((s) => (
+                  <li key={s.name}>
+                    <a
+                      href={s.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`PUSH على ${s.name}`}
+                      title={s.name}
+                      className="flex h-10 items-center gap-2 rounded-full bg-white/10 px-4 text-sm font-bold text-parchment/80 ring-1 ring-white/10 transition hover:bg-white/20 hover:text-parchment"
+                    >
+                      {s.icon}
+                      <span>{s.name}</span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
 
           <div>
