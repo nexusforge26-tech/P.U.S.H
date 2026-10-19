@@ -444,3 +444,118 @@ export async function getDriveStorageQuota(): Promise<DriveQuotaInfo | null> {
 
 // Re-export helper for folder extraction
 export { extractDriveFileId, extractDriveFolderId };
+
+// ---------------------------------------------------------------------------
+// فحص إعداد Google Drive: أي حساب يرفع؟ وهل يملك صلاحية الكتابة في مجلد الموقع؟
+// ---------------------------------------------------------------------------
+export interface DriveSetupStatus {
+  mode: "oauth" | "service_account" | "unconfigured";
+  accountEmail: string | null;
+  folderId: string | null;
+  folderName: string | null;
+  folderOwnerEmail: string | null;
+  inSharedDrive: boolean;
+  canWrite: boolean | null; // null = تعذر الفحص
+  /** هل المجلد مفتوح للتعديل لأي شخص معه الرابط؟ (خطر) — null = تعذر الفحص */
+  publicEditAccess: boolean | null;
+  error: string | null;
+}
+
+export async function checkDriveSetup(): Promise<DriveSetupStatus> {
+  const status: DriveSetupStatus = {
+    mode: process.env.GOOGLE_OAUTH_REFRESH_TOKEN
+      ? "oauth"
+      : process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL
+      ? "service_account"
+      : "unconfigured",
+    accountEmail: null,
+    folderId: process.env.GOOGLE_DRIVE_FOLDER_ID ?? null,
+    folderName: null,
+    folderOwnerEmail: null,
+    inSharedDrive: false,
+    canWrite: null,
+    publicEditAccess: null,
+    error: null,
+  };
+  if (status.mode === "unconfigured") {
+    status.error = "لم يتم ضبط حساب Google Drive في متغيرات البيئة";
+    return status;
+  }
+  if (!status.folderId) {
+    status.error = "GOOGLE_DRIVE_FOLDER_ID غير مضبوط";
+    return status;
+  }
+
+  try {
+    const token = await getDriveAccessToken();
+    const headers = { Authorization: `Bearer ${token}` };
+
+    const aboutRes = await fetch("https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)", {
+      headers,
+      cache: "no-store",
+    });
+    if (aboutRes.ok) {
+      const about = (await aboutRes.json()) as { user?: { emailAddress?: string } };
+      status.accountEmail = about.user?.emailAddress ?? null;
+    }
+
+    const folderRes = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(
+        status.folderId
+      )}?supportsAllDrives=true&fields=id,name,mimeType,driveId,owners(emailAddress),capabilities(canAddChildren),permissions(type,role)`,
+      { headers, cache: "no-store" }
+    );
+    if (folderRes.status === 404) {
+      status.canWrite = false;
+      status.error = "الحساب لا يرى المجلد أبدًا: المعرّف خاطئ أو المجلد غير مشارك مع الحساب";
+      return status;
+    }
+    if (!folderRes.ok) {
+      status.error = `تعذر قراءة المجلد (${folderRes.status})`;
+      return status;
+    }
+    const folder = (await folderRes.json()) as {
+      name?: string;
+      mimeType?: string;
+      driveId?: string;
+      owners?: { emailAddress?: string }[];
+      capabilities?: { canAddChildren?: boolean };
+      permissions?: { type?: string; role?: string }[];
+    };
+    status.folderName = folder.name ?? null;
+    status.folderOwnerEmail = folder.owners?.[0]?.emailAddress ?? null;
+    status.inSharedDrive = Boolean(folder.driveId);
+    // أي صلاحية عامة (anyone/domain) أعلى من «مشاهد» تعني أن الرابط وحده يكفي للتعديل
+    if (folder.permissions) {
+      status.publicEditAccess = folder.permissions.some(
+        (p) =>
+          (p.type === "anyone" || p.type === "domain") &&
+          ["writer", "fileOrganizer", "organizer", "owner"].includes(p.role ?? "")
+      );
+    }
+    if (folder.mimeType !== "application/vnd.google-apps.folder") {
+      status.canWrite = false;
+      status.error = "المعرّف المضبوط ليس معرّف مجلد";
+      return status;
+    }
+    status.canWrite = folder.capabilities?.canAddChildren === true;
+    if (!status.canWrite) {
+      status.error = "الحساب يرى المجلد لكنه لا يملك صلاحية «محرر» عليه";
+    }
+    return status;
+  } catch (err) {
+    status.error = err instanceof Error ? err.message : "تعذر فحص إعداد Drive";
+    return status;
+  }
+}
+
+let writableCache: { ok: boolean; exp: number } | null = null;
+
+/** فحص سريع مخزّن مؤقتًا: هل يستطيع حساب الرفع الكتابة في مجلد الموقع؟ (null = لا نعرف) */
+export async function isDriveFolderWritable(): Promise<boolean | null> {
+  if (writableCache && writableCache.exp > Date.now()) return writableCache.ok;
+  const s = await checkDriveSetup();
+  if (s.canWrite === null) return null;
+  writableCache = { ok: s.canWrite, exp: Date.now() + (s.canWrite ? 10 * 60_000 : 60_000) };
+  return s.canWrite;
+}

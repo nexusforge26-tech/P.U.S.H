@@ -50,6 +50,28 @@ export default function OverviewTab({
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [driveCheck, setDriveCheck] = useState<null | {
+    mode: string;
+    accountEmail: string | null;
+    folderName: string | null;
+    folderOwnerEmail: string | null;
+    inSharedDrive: boolean;
+    canWrite: boolean | null;
+    publicEditAccess?: boolean | null;
+    error: string | null;
+  }>(null);
+  const [checkingDrive, setCheckingDrive] = useState(false);
+
+  async function runDriveCheck() {
+    setCheckingDrive(true);
+    try {
+      const r = await authFetch("/api/admin/drive-check");
+      setDriveCheck(r.ok ? await r.json() : { mode: "?", accountEmail: null, folderName: null, folderOwnerEmail: null, inSharedDrive: false, canWrite: null, error: "تعذر تنفيذ الفحص" });
+    } catch {
+      setDriveCheck(null);
+    }
+    setCheckingDrive(false);
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -293,6 +315,64 @@ export default function OverviewTab({
             ) : (
               <p className="mt-4 text-sm text-ink/45">تعذر قراءة حصة التخزين حاليًا.</p>
             )}
+
+            <div className="mt-5 border-t border-olive/10 pt-4">
+              <button
+                type="button"
+                onClick={runDriveCheck}
+                disabled={checkingDrive}
+                className="rounded-xl bg-olive px-4 py-2 text-xs font-black text-parchment disabled:opacity-50"
+              >
+                {checkingDrive ? "جارٍ الفحص..." : "فحص إعدادات الرفع إلى Drive"}
+              </button>
+              {driveCheck && (
+                <dl className="mt-3 space-y-1.5 text-xs text-ink/70" dir="rtl">
+                  <div>
+                    <dt className="inline font-black">طريقة الدخول: </dt>
+                    <dd className="inline">
+                      {driveCheck.mode === "oauth" ? "حساب Google (OAuth)" : driveCheck.mode === "service_account" ? "حساب خدمة (Service Account)" : driveCheck.mode}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="inline font-black">حساب الرفع: </dt>
+                    <dd className="inline" dir="ltr">{driveCheck.accountEmail ?? "غير معروف"}</dd>
+                  </div>
+                  <div>
+                    <dt className="inline font-black">المجلد: </dt>
+                    <dd className="inline">{driveCheck.folderName ?? "غير ظاهر للحساب"}</dd>
+                  </div>
+                  {driveCheck.folderOwnerEmail && (
+                    <div>
+                      <dt className="inline font-black">مالك المجلد: </dt>
+                      <dd className="inline" dir="ltr">{driveCheck.folderOwnerEmail}</dd>
+                    </div>
+                  )}
+                  <p
+                    className={`rounded-xl p-3 font-black ${
+                      driveCheck.canWrite ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-700"
+                    }`}
+                  >
+                    {driveCheck.canWrite
+                      ? "✓ الحساب يملك صلاحية الكتابة في مجلد الموقع."
+                      : `✗ ${driveCheck.error ?? "تعذر التأكد من الصلاحية"}`}
+                  </p>
+                  <p
+                    className={`rounded-xl p-3 font-black ${
+                      driveCheck.publicEditAccess ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-800"
+                    }`}
+                  >
+                    {driveCheck.publicEditAccess
+                      ? "⚠️ خطر: المجلد مفتوح للتعديل لأي شخص معه الرابط. غيّر «الوصول العام» إلى «مقيّد» أو «مشاهد» فورًا."
+                      : "✓ لا يوجد وصول عام بالتعديل على المجلد (الزوار يشاهدون الملفات فقط)."}
+                  </p>
+                  {!driveCheck.canWrite && driveCheck.accountEmail && (
+                    <p className="font-bold text-ink/60">
+                      الحل: افتح المجلد في Google Drive ← «مشاركة» ← أضف <span dir="ltr">{driveCheck.accountEmail}</span> بصلاحية «محرر» (Editor).
+                    </p>
+                  )}
+                </dl>
+              )}
+            </div>
           </section>
         </div>
       )}

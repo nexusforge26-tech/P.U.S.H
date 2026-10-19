@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRequestUser, rejectIfProfileIncomplete } from "@/lib/auth";
-import { getDriveStorageQuota, initiateDriveResumableUpload } from "@/lib/googleDrive";
+import { getDriveStorageQuota, initiateDriveResumableUpload, isDriveFolderWritable } from "@/lib/googleDrive";
 import {
   MAX_PENDING_SUBMISSIONS_PER_USER,
   MAX_UPLOADS_PER_DAY,
@@ -81,6 +81,15 @@ export async function POST(req: NextRequest) {
           );
         }
       }
+    }
+
+    // فحص مسبق للصلاحية: يمنع بدء رفع سيفشل بـ403 (insufficientParentPermissions) بعد تعب المستخدم
+    if ((await isDriveFolderWritable()) === false) {
+      console.error("[upload] Drive account cannot write to the site folder (check /admin → نظرة عامة → فحص Drive)");
+      return NextResponse.json(
+        { error: "الرفع متوقف مؤقتًا بسبب إعدادات التخزين. تم تسجيل المشكلة، يرجى إبلاغ الإدارة." },
+        { status: 503 }
+      );
     }
 
     // فحص مسبق للمساحة: يعطي سببًا واضحًا بدل فشل 403 بعد رفع جزء من الملف
