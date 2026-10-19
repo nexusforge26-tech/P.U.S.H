@@ -6,6 +6,7 @@ import TypeBadge from "@/components/TypeBadge";
 import DownloadButton from "@/components/DownloadButton";
 import DocViewer from "@/components/DocViewer";
 import MaterialActions from "@/components/MaterialActions";
+import MaterialAdminBar from "@/components/MaterialAdminBar";
 import { getMaterialById } from "@/lib/data";
 import { MATERIAL_TYPE_LABELS, SEMESTER_LABELS } from "@/lib/types";
 import { formatBytes, formatMimeLabel } from "@/lib/uploadLimits";
@@ -142,6 +143,25 @@ export default async function MaterialPage({ params }: { params: { id: string } 
           initialHelpfulCount={material.helpful_count ?? 0}
         />
       </div>
+
+      <MaterialAdminBar
+        material={{
+          id: material.id,
+          course_id: material.course_id,
+          title_ar: material.title_ar,
+          description_ar: material.description_ar,
+          type: material.type,
+          academic_year: material.academic_year,
+          semester: material.semester,
+          drive_link: material.drive_link,
+          youtube_id: material.youtube_id,
+          is_featured: material.is_featured,
+          is_verified: material.is_verified,
+          file_size: material.file_size,
+          mime_type: material.mime_type,
+          university_id: material.university_id,
+        }}
+      />
 
       <div className="mt-8">
         {material.type === "video" && material.youtube_id ? (

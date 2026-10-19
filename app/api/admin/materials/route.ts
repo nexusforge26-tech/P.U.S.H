@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireStaff, getCourseUniversityId, forbiddenOutOfScope } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
@@ -34,6 +35,19 @@ function flatten(row: Record<string, unknown>) {
     course_code: course?.code ?? null,
     university_name: course?.universities?.name_ar ?? null,
   };
+}
+
+
+/** يحدّث صفحات الموقع العامة المرتبطة بالمادة فور تغييرها (الصفحات مخزّنة مؤقتًا 30–60 ثانية). */
+function refreshPublicPages(materialId?: string, courseId?: string | null) {
+  try {
+    if (materialId) revalidatePath(`/material/${materialId}`);
+    if (courseId) revalidatePath(`/universities`, "layout");
+    revalidatePath("/");
+    revalidatePath("/browse");
+  } catch {
+    // لا نفشل العملية بسبب التحديث
+  }
 }
 
 export async function GET(req: NextRequest) {
@@ -224,6 +238,7 @@ export async function POST(req: NextRequest) {
     title_ar: String(row.title_ar),
     course_id: String(row.course_id),
   });
+  refreshPublicPages(String(row.id ?? ""), String(row.course_id ?? ""));
   return NextResponse.json({ data: flatten(row) });
 }
 
@@ -308,6 +323,7 @@ export async function PATCH(req: NextRequest) {
     title_ar: String(row.title_ar),
     course_id: String(row.course_id),
   });
+  refreshPublicPages(String(row.id ?? ""), String(row.course_id ?? ""));
   return NextResponse.json({ data: flatten(row) });
 }
 
@@ -347,5 +363,6 @@ export async function DELETE(req: NextRequest) {
     title_ar: existing?.title_ar ?? null,
     course_id: existing?.course_id ?? null,
   });
+  refreshPublicPages(id, existing?.course_id ?? null);
   return NextResponse.json({ ok: true });
 }
