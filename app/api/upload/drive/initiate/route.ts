@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRequestUser, rejectIfProfileIncomplete } from "@/lib/auth";
-import { initiateDriveResumableUpload } from "@/lib/googleDrive";
+import { getDriveStorageQuota, initiateDriveResumableUpload } from "@/lib/googleDrive";
 import {
   MAX_PENDING_SUBMISSIONS_PER_USER,
   MAX_UPLOADS_PER_DAY,
@@ -81,6 +81,15 @@ export async function POST(req: NextRequest) {
           );
         }
       }
+    }
+
+    // فحص مسبق للمساحة: يعطي سببًا واضحًا بدل فشل 403 بعد رفع جزء من الملف
+    const quota = await getDriveStorageQuota();
+    if (quota?.limit && quota.usage + fileSize > quota.limit) {
+      return NextResponse.json(
+        { error: "مساحة التخزين في Google Drive ممتلئة حاليًا، يرجى إبلاغ الإدارة." },
+        { status: 507 }
+      );
     }
 
     const result = await initiateDriveResumableUpload(fileName, mimeType, fileSize, trustedOrigin(req));

@@ -108,6 +108,27 @@ function putToSession(
   });
 }
 
+// يحوّل رفض Google Drive (مثل 403) إلى سبب مفهوم بدل رقم الخطأ فقط
+function explainDriveRejection(status: number, body: string): string {
+  let reason = "";
+  try {
+    const parsed = JSON.parse(body);
+    reason = String(parsed?.error?.errors?.[0]?.reason || parsed?.error?.status || "");
+  } catch {
+    // الرد ليس JSON
+  }
+  if (/storageQuota/i.test(reason)) {
+    return "مساحة التخزين في Google Drive ممتلئة أو حساب الرفع لا يملك مساحة. تواصل مع الإدارة لتفريغ المساحة (ومنها سلة المحذوفات).";
+  }
+  if (/rateLimit|quotaExceeded|dailyLimit/i.test(reason)) {
+    return "تجاوز Google Drive حد الطلبات مؤقتًا، حاول بعد دقائق.";
+  }
+  if (/insufficientFilePermissions|forbidden|PERMISSION_DENIED/i.test(reason) || status === 403) {
+    return `لا يملك حساب الرفع صلاحية الكتابة في مجلد الموقع على Google Drive (${status}${reason ? ` · ${reason}` : ""}). أبلغ الإدارة.`;
+  }
+  return `Google Drive رفض الرفع (${status})`;
+}
+
 function parseDone(body: string): DriveFile {
   try {
     return JSON.parse(body) as DriveFile;
@@ -167,7 +188,7 @@ async function uploadToGoogle(
         clearSavedSessionUrl(file);
         throw new Error("انتهت صلاحية جلسة الرفع، يرجى اختيار الملف مرة أخرى للبدء من جديد");
       }
-      throw new Error(`Google Drive رفض الرفع (${r.status})`);
+      throw new Error(explainDriveRejection(r.status, r.body));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "";
       const retryable = msg === "network" || msg === "retry";
