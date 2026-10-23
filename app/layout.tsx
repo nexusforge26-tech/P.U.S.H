@@ -21,25 +21,31 @@ const tajawal = Tajawal({
 });
 
 export const metadata: Metadata = {
-  title: {
-    default: "PUSH — Palestine University Students Hub",
-    template: "%s | PUSH",
-  },
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://p-u-s-h-liard.vercel.app"),
+  title: { default: "PUSH | مكتبة طلاب الجامعات الفلسطينية", template: "%s | PUSH" },
   description:
-    "منصة طلابية تطوعية تجمع الملخصات والامتحانات السابقة وفيديوهات الشرح لطلاب الجامعات الفلسطينية في مكان واحد.",
+    "مكتبة طلابية فلسطينية مجانية للملخصات والامتحانات السابقة والمواد التعليمية، مرتبة حسب الجامعة والمساق لتسهيل الدراسة والوصول إلى المعرفة.",
+  keywords: [
+    "طلاب الجامعات الفلسطينية",
+    "ملخصات جامعية",
+    "امتحانات سابقة",
+    "مواد تعليمية",
+    "مساقات جامعية",
+    "مكتبة طلابية",
+  ],
   openGraph: {
-    title: "PUSH — مركز المعرفة الطلابية للجامعات الفلسطينية",
-    description:
-      "ملخصات، امتحانات سابقة، ملفات مرجعية، وفيديوهات شرح مرتبة حسب الجامعة والمساق.",
+    title: "PUSH | مكتبة طلاب الجامعات الفلسطينية",
+    description: "ملخصات جامعية وامتحانات سابقة ومواد تعليمية مجانية، مرتبة حسب الجامعة والمساق.",
     type: "website",
     locale: "ar_PS",
     siteName: "PUSH",
+    images: [{ url: "/push-logo.jpg", width: 2048, height: 2048, alt: "شعار منصة PUSH" }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "PUSH — Palestine University Students Hub",
-    description:
-      "منصة طلابية تطوعية تجمع الملخصات والامتحانات السابقة وفيديوهات الشرح لطلاب الجامعات الفلسطينية.",
+    title: "PUSH | مكتبة طلاب الجامعات الفلسطينية",
+    description: "ملخصات جامعية وامتحانات سابقة ومواد تعليمية مجانية لطلاب الجامعات الفلسطينية.",
+    images: ["/push-logo.jpg"],
   },
 };
 

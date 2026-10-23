@@ -7,9 +7,10 @@ import DoctorFilters from "@/components/DoctorFilters";
 export const revalidate = 30;
 
 export const metadata: Metadata = {
-  title: "دليل ومعلومات الدكاترة",
+  title: "دليل الدكاترة في الجامعات الفلسطينية",
   description:
     "البريد الإلكتروني الجامعي، موقع المكتب، والمساقات التي يدرّسها أعضاء الهيئة التدريسية في الجامعات الفلسطينية.",
+  alternates: { canonical: "/doctors" },
   openGraph: {
     title: "دليل ومعلومات الدكاترة | PUSH",
     description:

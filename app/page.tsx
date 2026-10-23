@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 import SearchBox from "@/components/SearchBox";
@@ -12,6 +13,11 @@ import {
 } from "@/lib/data";
 import { MATERIAL_TYPE_LABELS, type MaterialType } from "@/lib/types";
 
+export const metadata: Metadata = {
+  title: "مكتبة طلاب الجامعات الفلسطينية",
+  description: "اكتشف ملخصات وامتحانات سابقة وفيديوهات شرح ومواد تعليمية مجانية لطلاب الجامعات الفلسطينية، مصنفة حسب الجامعة والمساق.",
+  alternates: { canonical: "/" },
+};
 export const revalidate = 60;
 
 export default async function HomePage() {

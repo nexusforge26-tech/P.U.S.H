@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 import SearchBox from "@/components/SearchBox";
@@ -6,6 +7,11 @@ import MaterialCard from "@/components/MaterialCard";
 import { searchMaterials } from "@/lib/data";
 import type { MaterialSort, MaterialType } from "@/lib/types";
 
+export const metadata: Metadata = {
+  title: "المكتبة والمواد الدراسية",
+  description: "ابحث في مكتبة PUSH عن ملخصات وامتحانات سابقة وفيديوهات وملفات دراسية لطلاب الجامعات الفلسطينية.",
+  alternates: { canonical: "/browse" },
+};
 export const revalidate = 30;
 
 interface Props {

@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "شروط الاستخدام والخصوصية وسياسة حقوق النشر",
+  title: "شروط الاستخدام والخصوصية وحقوق النشر",
   description:
-    "شروط استخدام منصة PUSH الطلابية، سياسة الخصوصية، وسياسة إزالة المحتوى وحقوق الملكية الفكرية.",
+    "اقرأ شروط استخدام منصة PUSH الطلابية وسياسة الخصوصية وحقوق الملكية الفكرية وآلية الإبلاغ عن المحتوى.",
+  alternates: { canonical: "/terms" },
 };
 
 export default function TermsPage() {

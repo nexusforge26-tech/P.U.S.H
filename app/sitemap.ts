@@ -1,8 +1,22 @@
 import type { MetadataRoute } from "next";
 import { getCourses, getUniversities, searchMaterials } from "@/lib/data";
+const MATERIAL_PAGE_SIZE = 500;
+const MAX_SITEMAP_URLS = 45_000;
+
+async function getSitemapMaterials() {
+  const items: Awaited<ReturnType<typeof searchMaterials>>["items"] = [];
+  let total = 0;
+  for (let page = 1; page <= Math.ceil(MAX_SITEMAP_URLS / MATERIAL_PAGE_SIZE); page += 1) {
+    const result = await searchMaterials({ page, pageSize: MATERIAL_PAGE_SIZE });
+    total = result.count;
+    items.push(...result.items);
+    if (result.items.length < MATERIAL_PAGE_SIZE || items.length >= total || items.length >= MAX_SITEMAP_URLS) break;
+  }
+  return items;
+}
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const baseUrl = (process.env.NEXT_PUBLIC_SITE_URL || "https://push-palestine.vercel.app").replace(
+  const baseUrl = (process.env.NEXT_PUBLIC_SITE_URL || "https://p-u-s-h-liard.vercel.app").replace(
     /\/+$/,
     ""
   );
@@ -34,7 +48,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     const [universities, courses, materialsRes] = await Promise.all([
       getUniversities().catch(() => []),
       getCourses().catch(() => []),
-      searchMaterials({ pageSize: 100 }).catch(() => ({ items: [], count: 0 })),
+      getSitemapMaterials().catch(() => []),
     ]);
 
     const uniRoutes: MetadataRoute.Sitemap = universities.map((u) => ({
@@ -51,7 +65,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.7,
     }));
 
-    const materialRoutes: MetadataRoute.Sitemap = materialsRes.items.map((m) => ({
+    const materialRoutes: MetadataRoute.Sitemap = materialsRes.map((m) => ({
       url: `${baseUrl}/material/${m.id}`,
       lastModified: m.created_at ? new Date(m.created_at) : new Date(),
       changeFrequency: "monthly",

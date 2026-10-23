@@ -15,6 +15,7 @@ export async function generateMetadata({
   if (!university) return { title: "جامعة غير موجودة" };
   return {
     title: `مساقات ${university.name_ar}`,
+    alternates: { canonical: `/universities/${params.id}` },
     description: `تصفح كافة المساقات والملخصات والامتحانات السابقة الخاصة بـ ${university.name_ar} على منصة PUSH.`,
     openGraph: {
       title: `مساقات ${university.name_ar} | PUSH`,

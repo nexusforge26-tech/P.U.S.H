@@ -1,7 +1,13 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { getUniversities } from "@/lib/data";
 import CourseSearch from "@/components/CourseSearch";
 
+export const metadata: Metadata = {
+  title: "الجامعات والمساقات الفلسطينية",
+  description: "تصفح الجامعات الفلسطينية وابحث عن المساقات والمواد التعليمية المنشورة في مكتبة PUSH الطلابية.",
+  alternates: { canonical: "/universities" },
+};
 export const revalidate = 60;
 
 export default async function UniversitiesPage() {

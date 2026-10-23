@@ -29,6 +29,7 @@ export async function generateMetadata({
   return {
     title,
     description,
+    alternates: { canonical: `/universities/${params.id}/${params.courseId}` },
     openGraph: {
       title: `${title} | PUSH`,
       description,
