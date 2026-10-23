@@ -22,6 +22,7 @@ const tajawal = Tajawal({
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://p-u-s-h-liard.vercel.app"),
+  verification: { google: "7TKK7d9zp1X964_lYcfsgYxzMDz4d1jNrNLqbgq4MYo" },
   title: { default: "PUSH | مكتبة طلاب الجامعات الفلسطينية", template: "%s | PUSH" },
   description:
     "مكتبة طلابية فلسطينية مجانية للملخصات والامتحانات السابقة والمواد التعليمية، مرتبة حسب الجامعة والمساق لتسهيل الدراسة والوصول إلى المعرفة.",
