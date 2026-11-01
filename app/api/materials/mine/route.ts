@@ -5,6 +5,7 @@ import { logActivity } from "@/lib/activity";
 import { SELF_EDIT_WINDOW_HOURS } from "@/lib/types";
 import { extractYoutubeId } from "@/lib/youtube";
 import { validateLink, validateMaterialInput } from "@/lib/validation";
+import { isDriveFileInUploadFolder } from "@/lib/googleDrive";
 import { deleteDriveFileIfUnreferenced } from "@/lib/driveCleanup";
 import { badRequest, isUuid, safeJson, serverError } from "@/lib/security";
 
@@ -90,7 +91,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   if (URL_IN_TEXT.test(validated.title_ar) || (validated.description_ar && URL_IN_TEXT.test(validated.description_ar))) {
-    return badRequest("لا يُسمح بإضافة روابط داخل العنوان أو الوصف. لتغيير الملف استخدم حقل الرابط/الملف (يمر بمراجعة الإدارة).");
+    return badRequest("لا يُسمح بإضافة روابط داخل العنوان أو الوصف. لتغيير الملف، ارفعه من خلال حقل اختيار الملف؛ وسيُراجع قبل النشر.");
   }
 
   // تحديث البيانات الوصفية الآمنة فقط (العنوان، الوصف، الفصل، العام الدراسي) مباشرة على المادة المنشورة.
@@ -120,6 +121,9 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: linkCheck.error || "رابط الملف غير صالح" }, { status: 400 });
     }
     if (linkCheck.url !== existing.drive_link) {
+      if (!linkCheck.isDrive || !linkCheck.driveFileId || !(await isDriveFileInUploadFolder(linkCheck.driveFileId))) {
+        return badRequest("لتغيير الملف، ارفعه من جهازك عبر حقل اختيار الملف؛ لا تُقبل روابط ملفات خارجية.");
+      }
       sourceChanged = true;
       newDriveLink = linkCheck.url;
     }
@@ -176,7 +180,7 @@ export async function PATCH(req: NextRequest) {
       action: "submission_created",
       target_type: "material",
       target_id: id,
-      title_ar: `طلب تحديث رابط/ملف: ${validated.title_ar}`,
+      title_ar: `طلب تحديث ملف: ${validated.title_ar}`,
       course_id: existing.course_id,
     });
 
@@ -184,7 +188,7 @@ export async function PATCH(req: NextRequest) {
       data: flatten(updatedMaterial as Record<string, unknown>),
       pendingLinkReview: true,
       message:
-        "تم حفظ تعديلات العنوان والوصف فورًا، بينما أُرسل الرابط/الملف الجديد للمراجعة من قِبل الإدارة قبل ظهوره للعامة.",
+        "تم حفظ تعديلات العنوان والوصف فورًا، بينما أُرسل الملف الجديد للمراجعة من قِبل الإدارة قبل ظهوره للعامة.",
     });
   }
 

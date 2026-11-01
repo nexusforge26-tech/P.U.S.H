@@ -5,6 +5,7 @@ import { logActivity } from "@/lib/activity";
 import { extractYoutubeId } from "@/lib/youtube";
 import { validateLink, validateMaterialInput } from "@/lib/validation";
 import { MAX_PENDING_SUBMISSIONS_PER_USER, MAX_UPLOAD_BYTES } from "@/lib/uploadLimits";
+import { isDriveFileInUploadFolder } from "@/lib/googleDrive";
 import { isDriveFileUsedByMaterial } from "@/lib/driveCleanup";
 import { badRequest, cleanText, isUuid, rateLimit, safeJson, serverError, tooManyRequests } from "@/lib/security";
 
@@ -152,6 +153,12 @@ export async function POST(req: NextRequest) {
     const linkCheck = validateLink(drive_link);
     if (!linkCheck.valid || !linkCheck.url) {
       return NextResponse.json({ error: linkCheck.error || "رابط الملف غير صالح" }, { status: 400 });
+    }
+    if (!linkCheck.isDrive || !linkCheck.driveFileId) {
+      return badRequest("ارفع الملف من جهازك عبر حقل اختيار الملف؛ لا تُقبل روابط ملفات خارجية.");
+    }
+    if (!(await isDriveFileInUploadFolder(linkCheck.driveFileId))) {
+      return badRequest("تعذر التحقق من الملف داخل مجلد الرفع. أعد رفعه من خلال حقل اختيار الملف.");
     }
 
     // منع اختطاف ملف مادة منشورة: رابط Drive العام ظاهر لأي زائر، وإرساله كمساهمة جديدة
