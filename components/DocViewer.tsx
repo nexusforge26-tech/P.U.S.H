@@ -16,6 +16,8 @@ export default function DocViewer({ material, className = "" }: DocViewerProps) 
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [useDirectStream, setUseDirectStream] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [mimeType, setMimeType] = useState<string | null>(null);
+  const [slowLoad, setSlowLoad] = useState(false);
 
   // نستعلم دائماً من السيرفر (/api/dl/[id]?mode=meta) للتحقق من وجود الملف،
   // وفك روابط المجلدات الفرعية، وتطبيق صلاحية القراءة العامة (ensureFilePublicReader) قبل عرض المعاينة
@@ -35,6 +37,7 @@ export default function DocViewer({ material, className = "" }: DocViewerProps) 
         if (r.ok && data?.accessible && data?.previewUrl) {
           setPreviewUrl(data.previewUrl);
           setStreamUrl(data.streamUrl || null);
+          setMimeType(typeof data.mimeType === "string" ? data.mimeType : null);
           setErrorMsg(null);
         } else {
           setPreviewUrl(null);
@@ -70,7 +73,21 @@ export default function DocViewer({ material, className = "" }: DocViewerProps) 
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isFullscreen]);
 
-  const activeIframeSrc = useDirectStream && streamUrl ? streamUrl : previewUrl;
+  // البث المباشر يعرض داخل المتصفح PDF والصور فقط؛ باقي الأنواع (Word/PowerPoint...) تُنزَّل كمرفق،
+  // فلا نعرض زر البث لها ونكتفي بعارض Drive.
+  const canStream = Boolean(streamUrl) && /^(application\/pdf|image\/(png|jpe?g|webp|gif))$/i.test(mimeType ?? "");
+  const activeIframeSrc = useDirectStream && canStream ? streamUrl : previewUrl;
+
+  // عارض Drive قد لا يطلق حدث التحميل (حظر ملفات تعريف الارتباط): ننهي الدوّار ونقترح البديل
+  useEffect(() => {
+    setSlowLoad(false);
+    if (!activeIframeSrc) return;
+    const t = window.setTimeout(() => {
+      setIsLoading(false);
+      setSlowLoad(true);
+    }, 12_000);
+    return () => window.clearTimeout(t);
+  }, [activeIframeSrc]);
 
   return (
     <div
@@ -113,7 +130,7 @@ export default function DocViewer({ material, className = "" }: DocViewerProps) 
         </div>
 
         <div className="flex items-center gap-2">
-          {streamUrl && !errorMsg && (
+          {canStream && !errorMsg && (
             <button
               type="button"
               onClick={() => {
@@ -196,15 +213,27 @@ export default function DocViewer({ material, className = "" }: DocViewerProps) 
                 key={activeIframeSrc}
                 title={material.title_ar}
                 src={activeIframeSrc}
-                onLoad={() => setIsLoading(false)}
+                onLoad={() => {
+                  setIsLoading(false);
+                  setSlowLoad(false);
+                }}
                 className="h-full min-h-[620px] w-full border-0"
                 allow="autoplay; fullscreen"
-                sandbox="allow-scripts allow-same-origin"
+                // عارض PDF في كروم لا يعمل داخل iframe بخاصية sandbox، والبث المباشر يقتصر على PDF/صور فقط
+                sandbox={useDirectStream && canStream ? undefined : "allow-scripts allow-same-origin"}
               />
             </>
           )
         )}
       </div>
+
+      {slowLoad && !errorMsg && (
+        <p className="border-t border-olive/10 px-4 py-2 text-center text-xs font-bold text-clay-dark">
+          {canStream
+            ? "إن لم يظهر الملف، اضغط «بث مباشر بديل» أعلاه، أو نزّل الملف."
+            : "إن لم يظهر الملف، جرّب تحديث الصفحة أو نزّل الملف من الزر أدناه."}
+        </p>
+      )}
     </div>
   );
 }

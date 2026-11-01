@@ -16,7 +16,7 @@ const csp = [
   "img-src 'self' data: blob: https://img.youtube.com https://i.ytimg.com https://drive.google.com https://*.googleusercontent.com",
   "font-src 'self' data:",
   `connect-src 'self' ${supabaseOrigin} https://www.googleapis.com https://*.supabase.co${isDev ? " ws: http://localhost:*" : ""}`.trim(),
-  "frame-src https://drive.google.com https://docs.google.com https://www.youtube-nocookie.com https://www.youtube.com",
+  "frame-src 'self' https://drive.google.com https://docs.google.com https://www.youtube-nocookie.com https://www.youtube.com",
   "frame-ancestors 'none'",
   "object-src 'none'",
   "base-uri 'self'",
@@ -51,6 +51,15 @@ const nextConfig = {
       { source: "/:path*", headers: securityHeaders },
       // واجهات API لا يجب تخزينها في الكاش المشترك
       { source: "/api/:path*", headers: [{ key: "Cache-Control", value: "no-store" }] },
+      // معاينة الملف داخل الموقع (iframe من نفس النطاق): نسمح بالتضمين من الموقع نفسه فقط.
+      // آخر قاعدة مطابقة تتغلب على القاعدة العامة (frame-ancestors 'none' / X-Frame-Options: DENY).
+      {
+        source: "/api/dl/:path*",
+        headers: [
+          { key: "Content-Security-Policy", value: "frame-ancestors 'self'" },
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+        ],
+      },
     ];
   },
 };
