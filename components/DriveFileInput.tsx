@@ -9,9 +9,8 @@ import {
   formatBytes,
   validateUploadFileMeta,
 } from "@/lib/uploadLimits";
-import { validateLink } from "@/lib/validation";
 import { authFetch } from "@/lib/authFetch";
-import { FILE_INPUT_CLASS, INPUT_CLASS } from "@/lib/styles";
+import { FILE_INPUT_CLASS } from "@/lib/styles";
 
 // يجب أن يكون مضاعفًا لـ 256KB (شرط Google للرفع القابل للاستئناف).
 const CHUNK_SIZE = 16 * 1024 * 1024;
@@ -228,7 +227,6 @@ export default function DriveFileInput({ currentLink, currentName, onUploaded }:
   const [resumedFromPercent, setResumedFromPercent] = useState<number | null>(null);
   const [fileInfo, setFileInfo] = useState("");
   const [uploadedName, setUploadedName] = useState(currentName || "");
-  const [pasted, setPasted] = useState("");
   const [privacyAcknowledged, setPrivacyAcknowledged] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -307,7 +305,6 @@ export default function DriveFileInput({ currentLink, currentName, onUploaded }:
       }
 
       clearSavedSessionUrl(file);
-      setPasted("");
       const finalName = finData.file_name || file.name;
       setUploadedName(finalName);
       onUploaded(finData.drive_link, finalName, {
@@ -325,30 +322,11 @@ export default function DriveFileInput({ currentLink, currentName, onUploaded }:
     }
   }
 
-  function handlePasteChange(rawVal: string) {
-    setPasted(rawVal);
-    const trimmed = rawVal.trim();
-    if (!trimmed) {
-      setError("");
-      onUploaded("", "");
-      return;
-    }
-    const check = validateLink(trimmed);
-    if (!check.valid || !check.url) {
-      setError(check.error || "الرابط غير صالح");
-      onUploaded("", "");
-      return;
-    }
-    setError("");
-    onUploaded(check.url, "");
-  }
-
   return (
     <div className="space-y-2">
       <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
         <strong>تنبيه الخصوصية:</strong> إذا اخترت ملفًا من جهازك، يُرفع إلى Google Drive الخاص بالمنصة
-        وقد يصبح متاحًا لمن يملك رابطه أثناء المراجعة. أما الرابط الذي تلصقه فقد يُعرض بعد موافقة
-        الإدارة. لا ترفع أو تربط ملفات سرية أو معلومات شخصية حساسة. <Link href="/terms" className="font-black underline">اقرأ سياسة الخصوصية</Link>.
+        وقد يصبح متاحًا لمن يملك رابط Drive أثناء المراجعة. لا ترفع ملفات سرية أو معلومات شخصية حساسة. <Link href="/terms" className="font-black underline">اقرأ سياسة الخصوصية</Link>.
       </p>
       <label className="flex items-start gap-2 rounded-xl border border-olive/10 bg-white px-3 py-2 text-xs leading-5 text-ink/75">
         <input
@@ -359,8 +337,8 @@ export default function DriveFileInput({ currentLink, currentName, onUploaded }:
           className="mt-1 h-4 w-4 shrink-0 accent-olive"
         />
         <span>
-          أفهم أن الملف الذي أرفعه قد يكون متاحًا لمن يملك رابط Drive أثناء المراجعة، وأن الملف أو
-          الرابط الذي أقدمه لا يظهر في مكتبة PUSH العامة إلا بعد موافقة الإدارة.
+          أفهم أن الملف الذي أرفعه قد يكون متاحًا لمن يملك رابط Drive أثناء المراجعة، وأنه لا يظهر
+          في مكتبة PUSH العامة إلا بعد موافقة الإدارة.
         </span>
       </label>
       <input
@@ -375,15 +353,6 @@ export default function DriveFileInput({ currentLink, currentName, onUploaded }:
         الأنواع المسموحة: PDF، Word، PowerPoint، Excel، الصور، والملفات المضغوطة (ZIP/RAR) حتى{" "}
         {MAX_UPLOAD_LABEL}. يدعم استئناف الرفع تلقائيًا عند انقطاع الاتصال.
       </p>
-      <input
-        type="url"
-        dir="ltr"
-        value={pasted}
-        onChange={(e) => handlePasteChange(e.target.value)}
-        disabled={busy || !privacyAcknowledged}
-        placeholder="أو الصق رابط ملف آمن (https://drive.google.com/...)"
-        className={INPUT_CLASS}
-      />
       {busy && (
         <div className="space-y-1">
           <p className="text-xs font-bold text-olive-dark">
@@ -407,7 +376,7 @@ export default function DriveFileInput({ currentLink, currentName, onUploaded }:
         </div>
       )}
       {error && <p className="text-xs font-bold text-clay-dark">{error}</p>}
-      {!busy && !error && !pasted && (currentLink || uploadedName) && (
+      {!busy && !error && (currentLink || uploadedName) && (
         <p className="rounded-xl bg-olive/5 px-3 py-2 text-xs font-bold text-olive-dark">
           تم تجهيز الملف{uploadedName ? `: ${uploadedName}` : ""} ✓
           {currentLink && (

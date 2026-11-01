@@ -347,6 +347,30 @@ export async function finalizeDriveUpload(
   };
 }
 
+/** Confirms that a submitted file belongs to the dedicated OAuth upload folder. */
+export async function isDriveFileInUploadFolder(fileId: string): Promise<boolean> {
+  const folderId = process.env.GOOGLE_DRIVE_UPLOAD_FOLDER_ID;
+  if (!folderId || !/^[A-Za-z0-9_-]{10,128}$/.test(fileId)) return false;
+
+  try {
+    const accessToken = await getOAuthDriveAccessToken();
+    const params = new URLSearchParams({
+      supportsAllDrives: "true",
+      fields: "id,parents,trashed",
+    });
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?${params}`,
+      { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" }
+    );
+    if (!res.ok) return false;
+
+    const file = (await res.json()) as { id?: string; parents?: string[]; trashed?: boolean };
+    return file.id === fileId && file.trashed !== true && Array.isArray(file.parents) && file.parents.includes(folderId);
+  } catch {
+    return false;
+  }
+}
+
 export async function getDriveStorageQuota(): Promise<DriveQuotaInfo | null> {
   const hasOAuthCredentials = Boolean(process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET && process.env.GOOGLE_OAUTH_REFRESH_TOKEN);
   if (!hasOAuthCredentials) {
