@@ -181,6 +181,7 @@ export interface DriveQuotaInfo {
   usageInDriveTrash: number;
   percentUsed: number | null;
   isNearLimit: boolean;
+  unavailableReason?: "service_account";
 }
 
 export const REPORT_REASON_LABELS: Record<ReportReason, string> = {

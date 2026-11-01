@@ -407,6 +407,24 @@ export async function finalizeDriveUpload(
 }
 
 export async function getDriveStorageQuota(): Promise<DriveQuotaInfo | null> {
+  const hasOAuthCredentials = Boolean(
+    process.env.GOOGLE_OAUTH_CLIENT_ID &&
+      process.env.GOOGLE_OAUTH_CLIENT_SECRET &&
+      process.env.GOOGLE_OAUTH_REFRESH_TOKEN
+  );
+  if (!hasOAuthCredentials && process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL) {
+    // Drive's user quota is not a meaningful measure for a service account or a Shared Drive.
+    return {
+      limit: null,
+      usage: 0,
+      usageInDrive: 0,
+      usageInDriveTrash: 0,
+      percentUsed: null,
+      isNearLimit: false,
+      unavailableReason: "service_account",
+    };
+  }
+
   try {
     const accessToken = await getDriveAccessToken();
     const res = await fetch("https://www.googleapis.com/drive/v3/about?fields=storageQuota", {

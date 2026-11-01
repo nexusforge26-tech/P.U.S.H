@@ -293,25 +293,32 @@ export default function OverviewTab({
           <section className="rounded-[28px] border border-olive/10 bg-white p-5 shadow-card sm:p-6">
             <h2 className="font-display text-xl font-bold text-olive-dark">التخزين (Google Drive)</h2>
             {driveQuota ? (
-              <div className="mt-4">
-                <p className="text-sm font-bold text-olive-dark">
-                  {formatBytes(driveQuota.usage)}
-                  {driveQuota.limit ? ` من ${formatBytes(driveQuota.limit)}` : ""}
+              driveQuota.unavailableReason === "service_account" ? (
+                <p className="mt-4 rounded-xl bg-amber-50 p-3 text-sm font-bold leading-6 text-amber-900">
+                  لا تتوفر حصة شخصية قابلة للقياس لحساب الخدمة؛ لا يعني ظهور 0 B أن مساحة الرفع متاحة.
+                  استخدم Shared Drive في Google Workspace أو OAuth لحساب Google شخصي.
                 </p>
-                {driveQuota.percentUsed !== null && (
-                  <div className="mt-2 h-3 overflow-hidden rounded-full bg-olive/10">
-                    <div
-                      className={`h-full rounded-full ${driveQuota.isNearLimit ? "bg-red-500" : "bg-olive"}`}
-                      style={{ width: `${Math.min(100, driveQuota.percentUsed)}%` }}
-                    />
-                  </div>
-                )}
-                <p className={`mt-2 text-xs font-bold ${driveQuota.isNearLimit ? "text-red-700" : "text-ink/45"}`}>
-                  {driveQuota.isNearLimit
-                    ? "⚠️ اقتربت المساحة من الحد الأقصى — احذف ملفات غير لازمة أو وسّع المساحة."
-                    : "المساحة ضمن الحد الآمن."}
-                </p>
-              </div>
+              ) : (
+                <div className="mt-4">
+                  <p className="text-sm font-bold text-olive-dark">
+                    {formatBytes(driveQuota.usage)}
+                    {driveQuota.limit ? ` من ${formatBytes(driveQuota.limit)}` : ""}
+                  </p>
+                  {driveQuota.percentUsed !== null && (
+                    <div className="mt-2 h-3 overflow-hidden rounded-full bg-olive/10">
+                      <div
+                        className={`h-full rounded-full ${driveQuota.isNearLimit ? "bg-red-500" : "bg-olive"}`}
+                        style={{ width: `${Math.min(100, driveQuota.percentUsed)}%` }}
+                      />
+                    </div>
+                  )}
+                  <p className={`mt-2 text-xs font-bold ${driveQuota.isNearLimit ? "text-red-700" : "text-ink/45"}`}>
+                    {driveQuota.isNearLimit
+                      ? "⚠️ اقتربت المساحة من الحد الأقصى — احذف ملفات غير لازمة أو وسّع المساحة."
+                      : "المساحة ضمن الحد الآمن."}
+                  </p>
+                </div>
+              )
             ) : (
               <p className="mt-4 text-sm text-ink/45">تعذر قراءة حصة التخزين حاليًا.</p>
             )}
@@ -341,6 +348,10 @@ export default function OverviewTab({
                     <dt className="inline font-black">المجلد: </dt>
                     <dd className="inline">{driveCheck.folderName ?? "غير ظاهر للحساب"}</dd>
                   </div>
+                  <div>
+                    <dt className="inline font-black">نوع التخزين: </dt>
+                    <dd className="inline">{driveCheck.inSharedDrive ? "Shared Drive" : "My Drive"}</dd>
+                  </div>
                   {driveCheck.folderOwnerEmail && (
                     <div>
                       <dt className="inline font-black">مالك المجلد: </dt>
@@ -356,6 +367,12 @@ export default function OverviewTab({
                       ? "✓ الحساب يملك صلاحية الكتابة في مجلد الموقع."
                       : `✗ ${driveCheck.error ?? "تعذر التأكد من الصلاحية"}`}
                   </p>
+                  {driveCheck.mode === "service_account" && !driveCheck.inSharedDrive && (
+                    <p className="rounded-xl bg-red-50 p-3 font-black leading-6 text-red-700">
+                      ⚠️ حساب الخدمة يستخدم مجلد My Drive، وليس Shared Drive. صلاحية الكتابة وحدها لا توفر
+                      مساحة تخزين لحساب الخدمة؛ استخدم OAuth لحساب شخصي أو انقل المجلد إلى Shared Drive.
+                    </p>
+                  )}
                   <p
                     className={`rounded-xl p-3 font-black ${
                       driveCheck.publicEditAccess ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-800"
