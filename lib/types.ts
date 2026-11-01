@@ -65,6 +65,7 @@ export interface Submission {
   suggested_course_name?: string | null;
   suggested_course_code?: string | null;
   suggested_university_id?: string | null;
+  created_course_id?: string | null;
   status: SubmissionStatus;
   admin_note: string | null;
   reviewed_by?: string | null;

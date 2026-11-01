@@ -614,3 +614,8 @@ create index if not exists idx_courses_university_name on courses(university_id,
 
 analyze materials;
 analyze courses;
+
+-- ===== توثيق المساقات المقبولة (مطابق لترحيل 2026-11-02-document-approved-courses) =====
+-- راجع ملف الترحيل لتوثيق المساقات المقبولة سابقًا: supabase/migrations/2026-11-02-document-approved-courses.sql
+alter table submissions add column if not exists created_course_id uuid references courses(id) on delete set null;
+create index if not exists idx_submissions_created_course on submissions(created_course_id);

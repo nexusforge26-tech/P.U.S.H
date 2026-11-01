@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireStaff, getCourseUniversityId, type StaffAccount } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
@@ -194,42 +195,88 @@ async function processSingleSubmission(params: {
 
   if (action === "approve") {
     if (claimed.kind === "course") {
-      const courseName = overrides?.title_ar?.trim() || claimed.suggested_course_name;
-      const { data: newCourse, error: courseError } = await supabaseAdmin
-        .from("courses")
-        .insert({
-          name_ar: courseName,
-          code: claimed.suggested_course_code,
-          university_id: claimed.suggested_university_id,
-        })
-        .select()
-        .single();
+      const courseName = (overrides?.title_ar?.trim() || claimed.suggested_course_name || "").trim();
+      const courseCode = String(claimed.suggested_course_code ?? "").trim();
 
-      if (courseError) {
-        await rollbackClaim();
-        console.error("[admin/submissions] course insert failed:", courseError.message);
-        return {
-          ok: false,
-          status: courseError.code === "23505" ? 409 : 500,
-          error: courseError.code === "23505" ? "يوجد مساق بنفس البيانات بالفعل." : "تعذر إضافة المساق، حاول مرة أخرى.",
-        };
+      // توثيق المساق: إن كان موجودًا مسبقًا في نفس الجامعة بنفس الرمز نعتمده ونربطه بالطلب
+      // بدل أن يفشل القبول؛ وإلا ننشئه. في الحالتين يُسجَّل الربط في الطلب (created_course_id).
+      let documentedCourse: { id: string; name_ar: string; code: string | null; university_id: string } | null = null;
+      let alreadyExisted = false;
+
+      if (courseCode) {
+        const { data: existing } = await supabaseAdmin
+          .from("courses")
+          .select("id,name_ar,code,university_id")
+          .eq("university_id", claimed.suggested_university_id)
+          .ilike("code", courseCode.replace(/[%_\\]/g, (m: string) => `\\${m}`))
+          .order("created_at", { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        if (existing) {
+          documentedCourse = existing;
+          alreadyExisted = true;
+        }
+      }
+
+      if (!documentedCourse) {
+        const { data: newCourse, error: courseError } = await supabaseAdmin
+          .from("courses")
+          .insert({
+            name_ar: courseName,
+            code: courseCode || null,
+            university_id: claimed.suggested_university_id,
+          })
+          .select("id,name_ar,code,university_id")
+          .single();
+
+        if (courseError || !newCourse) {
+          await rollbackClaim();
+          console.error("[admin/submissions] course insert failed:", courseError?.message);
+          return {
+            ok: false,
+            status: courseError?.code === "23505" ? 409 : 500,
+            error: courseError?.code === "23505" ? "يوجد مساق بنفس البيانات بالفعل." : "تعذر إضافة المساق، حاول مرة أخرى.",
+          };
+        }
+        documentedCourse = newCourse;
+      }
+
+      // ربط الطلب بالمساق الموثّق (يتجاهل الخطأ إن لم يُنفَّذ الترحيل الجديد بعد)
+      await supabaseAdmin
+        .from("submissions")
+        .update({ created_course_id: documentedCourse.id })
+        .eq("id", id)
+        .then(({ error }) => {
+          if (error) console.warn("[admin/submissions] created_course_id link skipped:", error.message);
+        });
+
+      // جعله ظاهرًا فورًا في البحث والتصفح وصفحات المساقات وخريطة الموقع (الصفحات مخزنة مؤقتًا 30–60 ثانية)
+      try {
+        revalidatePath("/", "layout");
+        revalidatePath("/universities", "layout");
+        revalidatePath("/browse");
+        revalidatePath("/sitemap.xml");
+      } catch {
+        /* لا نفشل القبول بسبب إعادة التحقق */
       }
 
       await logActivity({
         actor,
         action: "course_suggestion_approved",
         target_type: "course",
-        target_id: newCourse.id,
-        title_ar: newCourse.name_ar,
-        course_id: newCourse.id,
-        university_id: newCourse.university_id,
+        target_id: documentedCourse.id,
+        title_ar: documentedCourse.name_ar,
+        course_id: documentedCourse.id,
+        university_id: documentedCourse.university_id,
       });
 
       await createUserNotification({
         userId: claimed.user_id,
         title: "تمت الموافقة على المساق المقترح ✓",
-        message: `تمت إضافة مساق «${newCourse.name_ar}» (${newCourse.code}) إلى المكتبة. شكرًا لمساهمتك!`,
-        link: `/universities/${newCourse.university_id}/${newCourse.id}`,
+        message: alreadyExisted
+          ? `مساق «${documentedCourse.name_ar}» (${documentedCourse.code ?? ""}) موثّق في المكتبة وجاهز للبحث ورفع المواد. شكرًا لمساهمتك!`
+          : `تمت إضافة مساق «${documentedCourse.name_ar}» (${documentedCourse.code ?? ""}) إلى المكتبة وأصبح جاهزًا للبحث ورفع المواد. شكرًا لمساهمتك!`,
+        link: `/universities/${documentedCourse.university_id}/${documentedCourse.id}`,
       });
     } else if (claimed.kind === "material_edit" && claimed.target_material_id) {
       // موافقة على تحديث رابط/ملف لمادة منشورة
