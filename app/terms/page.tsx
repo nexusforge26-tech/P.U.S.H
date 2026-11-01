@@ -46,7 +46,7 @@ export default function TermsPage() {
             </ul>
           </section>
 
-          <section>
+          <section id="privacy-policy">
             <h2 className="font-display text-2xl font-bold text-olive-dark">2. سياسة الخصوصية</h2>
             <ul className="mt-3 list-inside list-disc space-y-2">
               <li>
@@ -80,6 +80,40 @@ export default function TermsPage() {
                 المرتبطة به داخل المنصة، مثل المساهمات والبلاغات والإشعارات وسجلات الرفع والنشاط. تُسجّل
                 عمليات التصدير لأغراض التدقيق، ويجب حفظ الملف بأمان واستخدامه للأغراض الإدارية فقط. لا
                 يشمل التصدير كلمات المرور أو رموز الدخول والجلسات أو مفاتيح الأسرار أو بصمات عناوين IP.
+              </li>
+              <li>
+                <p>
+                  عند زيارة عضو مسجّل بحساب عادي للموقع، وإذا كان قد منح إذن الموقع في المتصفح، يقرأ PUSH إحداثيات
+                  الجهاز الحالية مرة واحدة ويرسلها إلى خادم المنصة للتحقق من النطاق الجغرافي. يُحدَّث
+                  سجل واحد فقط لكل عضو في كل زيارة ناجحة، ويُستبدل عند الزيارة التالية دون حفظ سجل
+                  تاريخي. تُحفظ خطوط العرض والطول ودقة الجهاز ووقت الفحص في قاعدة البيانات، ويطّلع عليها
+                  المالك والمسؤول العام فقط؛ ولا تُدرج الإحداثيات في ملف Excel الجماعي. إذا لم يمنح العضو
+                  الإذن، لا يقرأ الموقع الإحداثيات تلقائيًا؛ ويمكن بدء الفحص بزر واضح عندما يسمح المتصفح بذلك.
+                  تبقى آخر إحداثيات حتى الزيارة التالية أو تمسحها الإدارة بعد المراجعة. يمكن إلغاء الإذن
+                  لاحقًا من إعدادات المتصفح. تستند حدود فلسطين المستخدمة إلى ملف ADM0 من مجموعة COD-AB
+                  المقدمة من <a href="https://data.humdata.org/dataset/cod-ab-pse" target="_blank" rel="noopener noreferrer" className="font-bold text-clay-dark underline">OCHA/HDX</a>
+                  ومصدرها وزارة التخطيط الفلسطينية، بموجب
+                  <a href="https://creativecommons.org/licenses/by/3.0/igo/" target="_blank" rel="noopener noreferrer" className="font-bold text-clay-dark underline">ترخيص CC BY-IGO 3.0</a>.
+                  تظهر النتيجة للمراجعة الإدارية فقط ولا ينتج عنها حظر
+                  أو إجراء آلي. قد تكون إحداثيات الجهاز غير دقيقة أو قابلة للتغيير من إعداداته، لذلك لا
+                  تُعد إثباتًا قاطعًا للموقع.
+                </p>
+                <p dir="ltr" lang="en" className="mt-2 text-sm">
+                  For standard signed-in member accounts, PUSH checks the device location once per site visit when browser
+                  permission has been granted. The current latitude, longitude, reported accuracy, and
+                  check time are sent to PUSH and replace the member’s single latest record; no location
+                  history is kept. Only the owner and global administrators can view these coordinates,
+                  and they are excluded from the bulk Excel export. If permission has not been granted,
+                  no automatic read occurs; the member may start the check using the on-screen button
+                  when the browser allows it. The latest coordinates remain until the next successful
+                  visit or an administrator clears them after review; permission may be revoked in browser
+                  settings. Palestine’s ADM0 boundary comes from the OCHA/HDX COD-AB dataset sourced from
+                  the Palestinian Authority Ministry of Planning and used under
+                  <a href="https://creativecommons.org/licenses/by/3.0/igo/" target="_blank" rel="noopener noreferrer" className="font-bold text-clay-dark underline">CC BY-IGO 3.0</a>.
+                  The result is for manual review only and does not trigger an automatic block or penalty.
+                  Device-reported coordinates can be inaccurate or altered, so they are not conclusive
+                  proof of physical presence.
+                </p>
               </li>
               <li>
                 لا نبيع بيانات المستخدمين ولا نستخدم محتوى الملفات للإعلانات أو تدريب نماذج الذكاء
