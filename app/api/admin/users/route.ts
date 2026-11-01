@@ -54,14 +54,37 @@ export async function GET(req: NextRequest) {
   const { data, count, error } = await query;
   if (error) return serverError(error);
 
+  const rows = data ?? [];
+  const canViewLocation = actor.profile.role === "admin" || actor.profile.role === "owner";
+  const locationByUser = new Map<string, Record<string, unknown>>();
+  if (canViewLocation && rows.length > 0) {
+    const { data: locationChecks, error: locationError } = await supabaseAdmin
+      .from("member_location_checks")
+      .select("user_id,status,latitude,longitude,accuracy_m,checked_at")
+      .in("user_id", rows.map((row) => row.id));
+    if (locationError) return serverError(locationError);
+    for (const check of locationChecks ?? []) {
+      locationByUser.set(check.user_id, {
+        status: check.status,
+        latitude: check.latitude,
+        longitude: check.longitude,
+        accuracy_m: check.accuracy_m,
+        checked_at: check.checked_at,
+      });
+    }
+  }
+
   return NextResponse.json({
-    users: data ?? [],
+    users: rows.map((row) => ({
+      ...row,
+      location_check: canViewLocation ? locationByUser.get(row.id) ?? null : null,
+    })),
     count: count ?? 0,
     page,
     pageSize,
     actorRole: actor.profile.role,
     scopeUniversityId: actor.scopeUniversityId,
-  });
+  }, { headers: { "Cache-Control": "private, no-store" } });
 }
 
 export async function PATCH(req: NextRequest) {

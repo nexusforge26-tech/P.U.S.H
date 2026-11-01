@@ -18,6 +18,13 @@ interface MemberProfile {
   universities?: { name_ar?: string } | null;
   managed_university?: { name_ar?: string } | null;
   created_at: string;
+  location_check?: {
+    status: "inside" | "outside";
+    latitude: number;
+    longitude: number;
+    accuracy_m: number;
+    checked_at: string;
+  } | null;
 }
 
 const PAGE_SIZE = 25;
@@ -115,6 +122,21 @@ export default function MembersTab() {
     load();
   }
 
+  async function clearLocationData(u: MemberProfile) {
+    if (!u.location_check || !confirm(`مسح آخر إحداثيات وحالة النطاق للعضو «${u.full_name || u.email}»؟`)) return;
+    setBusy(u.id);
+    const response = await authFetch(`/api/admin/users/location?id=${encodeURIComponent(u.id)}`, {
+      method: "DELETE",
+    });
+    const data = await response.json().catch(() => ({}));
+    setBusy("");
+    if (!response.ok) {
+      alert(data.error || "تعذر مسح بيانات الموقع.");
+      return;
+    }
+    await load();
+  }
+
   async function removeUser(u: MemberProfile) {
     if (
       !confirm(
@@ -172,6 +194,11 @@ export default function MembersTab() {
           يشمل التصدير جميع السجلات المرتبطة بالأعضاء ضمن البحث والفلاتر الحالية. لا يتضمن كلمات المرور أو رموز الدخول والجلسات، وتُسجل عملية التنزيل إداريًا.
         </p>
       )}
+      {(actor === "admin" || actor === "owner") && (
+        <p className="mt-2 text-xs leading-5 text-clay-dark">
+          بيانات الموقع مُبلّغ عنها من جهاز العضو وقد تكون غير دقيقة أو معدّلة؛ استخدمها للمراجعة البشرية فقط، لا كدليل قطعي أو سبب آلي لاتخاذ إجراء. ووفق بيانات OCHA، آخر مراجعة دقة للحدود كانت 24 كانون الأول 2024، وكان موعد المراجعة السنوية التالية 24 كانون الأول 2025؛ تحقق من المصدر قبل الاعتماد عليها.
+        </p>
+      )}
 
       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_200px]">
         <input
@@ -200,7 +227,7 @@ export default function MembersTab() {
       </div>
 
       <div className="mt-5 overflow-x-auto">
-        <table className="w-full min-w-[1100px] text-right">
+        <table className="w-full min-w-[1320px] text-right">
           <thead>
             <tr className="border-b border-olive/10 text-xs font-black text-ink/40">
               <th className="p-3">العضو</th>
@@ -208,6 +235,7 @@ export default function MembersTab() {
               <th className="p-3">الجامعة</th>
               <th className="p-3">الهاتف</th>
               <th className="p-3">واتساب</th>
+              {(actor === "admin" || actor === "owner") && <th className="p-3">النطاق الجغرافي</th>}
               <th className="p-3">الصلاحية</th>
               <th className="p-3">تاريخ التسجيل</th>
               <th className="p-3">تغيير الصلاحية</th>
@@ -245,6 +273,39 @@ export default function MembersTab() {
                     <span className="text-xs font-bold text-clay-dark">لم يُدخل</span>
                   )}
                 </td>
+                {(actor === "admin" || actor === "owner") && (
+                  <td className="max-w-[230px] p-3 text-xs">
+                    {u.location_check ? (
+                      <div className="space-y-1.5">
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 font-black ${
+                            u.location_check.status === "outside"
+                              ? "bg-red-100 text-red-700"
+                              : "bg-olive/10 text-olive-dark"
+                          }`}
+                        >
+                          {u.location_check.status === "outside" ? "خارج النطاق · حسب الجهاز" : "داخل النطاق"}
+                        </span>
+                        <p dir="ltr" className="font-mono text-[11px] text-ink/65">
+                          {u.location_check.latitude.toFixed(6)}, {u.location_check.longitude.toFixed(6)}
+                        </p>
+                        <p className="text-[11px] text-ink/45">
+                          دقة الجهاز ±{Math.round(u.location_check.accuracy_m)} م · {new Date(u.location_check.checked_at).toLocaleString("ar")}
+                        </p>
+                        <button
+                          type="button"
+                          disabled={busy === u.id}
+                          onClick={() => clearLocationData(u)}
+                          className="rounded-lg border border-olive/10 px-2 py-1 text-[11px] font-bold text-ink/55 hover:bg-olive/5 disabled:opacity-40"
+                        >
+                          مسح بيانات الموقع
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-ink/35">لم يُجرَ فحص</span>
+                    )}
+                  </td>
+                )}
                 <td className="p-3">
                   <span className="rounded-full bg-olive/7 px-3 py-1 text-xs font-black">
                     {roleLabel(u.role, u.managed_university?.name_ar)}

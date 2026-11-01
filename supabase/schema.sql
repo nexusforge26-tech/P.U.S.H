@@ -146,6 +146,23 @@ create index if not exists idx_profiles_role on profiles(role);
 create index if not exists idx_profiles_email on profiles(email);
 create index if not exists idx_profiles_university on profiles(university_id);
 
+-- سجل آخر تحديد جغرافي فقط؛ بيانات حساسة لا تُقرأ من العميل مباشرة.
+create table if not exists public.member_location_checks (
+  user_id uuid primary key references public.profiles(id) on delete cascade,
+  status text not null check (status in ('inside', 'outside')),
+  latitude double precision not null check (latitude between -90 and 90),
+  longitude double precision not null check (longitude between -180 and 180),
+  accuracy_m double precision not null check (accuracy_m >= 0 and accuracy_m <= 1000000),
+  checked_at timestamptz not null default now()
+);
+comment on table public.member_location_checks is
+  'Stores only a member’s latest browser-reported location check; exact coordinates are sensitive and restricted to authenticated admin server routes.';
+comment on column public.member_location_checks.accuracy_m is
+  'Browser-reported horizontal accuracy in meters; this does not prove physical presence.';
+alter table public.member_location_checks enable row level security;
+revoke all on table public.member_location_checks from public, anon, authenticated;
+grant all on table public.member_location_checks to service_role;
+
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
