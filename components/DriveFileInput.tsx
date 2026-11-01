@@ -178,7 +178,10 @@ async function uploadToGoogle(
       }
       if (r.status === 308) {
         const m = r.range?.match(/bytes=0-(\d+)/);
-        offset = m ? Number(m[1]) + 1 : end;
+        // Google may omit Range when it has not persisted any bytes yet.
+        // Restart at byte 0 in that case; advancing to `end` would silently
+        // skip the first chunk and leave the uploaded file corrupted.
+        offset = m ? Number(m[1]) + 1 : 0;
         failures = 0;
         onProgress(Math.min(99, Math.round((offset / size) * 100)));
         continue;
