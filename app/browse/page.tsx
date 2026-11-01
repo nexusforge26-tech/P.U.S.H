@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import SearchBox from "@/components/SearchBox";
 import FilterBar from "@/components/FilterBar";
 import MaterialCard from "@/components/MaterialCard";
-import { searchMaterials } from "@/lib/data";
+import { searchCourses, searchMaterials, type CourseSearchResult } from "@/lib/data";
 import type { MaterialSort, MaterialType } from "@/lib/types";
 
 export const metadata: Metadata = {
@@ -79,6 +79,12 @@ export default async function BrowsePage({ searchParams: searchParamsPromise }: 
     errored = true;
   }
 
+  // المساقات المطابقة: البحث في المواد وحده لا يُظهر مساقًا جديدًا ليس فيه مواد بعد
+  let matchedCourses: CourseSearchResult[] = [];
+  if (searchParams.q?.trim() && page === 1 && !searchParams.course) {
+    matchedCourses = await searchCourses(searchParams.q, searchParams.university).catch(() => []);
+  }
+
   const totalPages = Math.max(1, Math.ceil(count / PAGE_SIZE));
   const paginationItems = getPaginationRange(page, totalPages);
 
@@ -135,7 +141,30 @@ export default async function BrowsePage({ searchParams: searchParamsPromise }: 
               </div>
             )}
 
-            {!errored && items.length === 0 && (
+            {matchedCourses.length > 0 && (
+              <div className="mb-6">
+                <p className="mb-2 text-sm font-bold text-olive-dark">مساقات مطابقة</p>
+                <div className="space-y-2">
+                  {matchedCourses.map((c) => (
+                    <Link
+                      key={c.id}
+                      href={`/universities/${c.university_id}/${c.id}`}
+                      className="flex items-center justify-between rounded-2xl border border-olive/10 bg-white p-4 shadow-card transition hover:border-gold/40"
+                    >
+                      <div>
+                        <p className="font-bold text-olive-dark">{c.name_ar}</p>
+                        <p className="mt-1 text-xs text-ink/45">
+                          {c.code} · {c.university_name}
+                        </p>
+                      </div>
+                      <span className="text-clay">←</span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {!errored && items.length === 0 && matchedCourses.length === 0 && (
               <div className="rounded-3xl border border-olive/10 bg-white p-12 text-center shadow-card">
                 <div className="mx-auto h-10 w-10 rounded-2xl bg-olive/8" />
                 <h2 className="mt-4 font-display text-2xl font-bold text-olive-dark">
