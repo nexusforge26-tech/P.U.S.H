@@ -8,108 +8,51 @@ import {
 import { extractDriveFileId, extractDriveFolderId } from "@/lib/validation";
 import type { DriveQuotaInfo } from "@/lib/types";
 
-let cachedToken: { token: string; expiresAt: number } | null = null;
+let cachedOAuthToken: { token: string; expiresAt: number } | null = null;
+let cachedServiceAccountToken: { token: string; expiresAt: number } | null = null;
 
 function base64UrlEncode(input: string | Buffer): string {
-  return Buffer.from(input)
-    .toString("base64")
-    .replace(/=/g, "")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_");
+  return Buffer.from(input).toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 }
 
-export async function getDriveAccessToken(): Promise<string> {
-  if (cachedToken && Date.now() < cachedToken.expiresAt - 60_000) {
-    return cachedToken.token;
-  }
-
+export async function getOAuthDriveAccessToken(): Promise<string> {
+  if (cachedOAuthToken && Date.now() < cachedOAuthToken.expiresAt - 60_000) return cachedOAuthToken.token;
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
   const refreshToken = process.env.GOOGLE_OAUTH_REFRESH_TOKEN;
+  if (!clientId || !clientSecret || !refreshToken) throw new Error("Google Drive OAuth غير مضبوط (GOOGLE_OAUTH_CLIENT_ID/SECRET/REFRESH_TOKEN)");
+  const res = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: "refresh_token" }).toString(), cache: "no-store" });
+  if (!res.ok) { console.error("Drive OAuth refresh failed:", res.status); throw new Error(`تعذر تجديد رمز OAuth لحساب Google Drive (${res.status})`); }
+  const data = (await res.json()) as { access_token?: string; expires_in?: number };
+  if (!data.access_token) throw new Error("لم يُرجع Google OAuth رمز وصول صالحًا");
+  cachedOAuthToken = { token: data.access_token, expiresAt: Date.now() + (data.expires_in ?? 3500) * 1000 };
+  return data.access_token;
+}
 
-  if (clientId && clientSecret && refreshToken) {
-    const res = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: clientId,
-        client_secret: clientSecret,
-        refresh_token: refreshToken,
-        grant_type: "refresh_token",
-      }).toString(),
-      cache: "no-store",
-    });
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      console.error("Drive OAuth refresh failed:", res.status, errText);
-      throw new Error(`تعذر تجديد رمز OAuth لحساب Google Drive (${res.status})`);
-    }
-
-    const data = (await res.json()) as { access_token?: string; expires_in?: number };
-    if (!data.access_token) {
-      throw new Error("لم يُرجع Google OAuth رمز وصول صالحًا");
-    }
-
-    cachedToken = {
-      token: data.access_token,
-      expiresAt: Date.now() + (data.expires_in ?? 3500) * 1000,
-    };
-    return data.access_token;
-  }
-
+export async function getServiceAccountDriveAccessToken(): Promise<string> {
+  if (cachedServiceAccountToken && Date.now() < cachedServiceAccountToken.expiresAt - 60_000) return cachedServiceAccountToken.token;
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const rawKey = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
-  if (!email || !rawKey) {
-    throw new Error("لم يتم ضبط حساب Google Drive في متغيرات البيئة");
-  }
-
+  if (!email || !rawKey) throw new Error("لم يتم ضبط حساب خدمة Google Drive في متغيرات البيئة");
   const privateKey = rawKey.includes("\\n") ? rawKey.replace(/\\n/g, "\n") : rawKey;
   const nowSec = Math.floor(Date.now() / 1000);
   const header = base64UrlEncode(JSON.stringify({ alg: "RS256", typ: "JWT" }));
-  const claimSet = base64UrlEncode(
-    JSON.stringify({
-      iss: email,
-      scope: "https://www.googleapis.com/auth/drive",
-      aud: "https://oauth2.googleapis.com/token",
-      exp: nowSec + 3600,
-      iat: nowSec,
-    })
-  );
-
+  const claimSet = base64UrlEncode(JSON.stringify({ iss: email, scope: "https://www.googleapis.com/auth/drive", aud: "https://oauth2.googleapis.com/token", exp: nowSec + 3600, iat: nowSec }));
   const signingInput = `${header}.${claimSet}`;
-  const signer = crypto.createSign("RSA-SHA256");
-  signer.update(signingInput);
-  signer.end();
-  const signature = base64UrlEncode(signer.sign(privateKey));
-  const assertion = `${signingInput}.${signature}`;
-
-  const res = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion,
-    }).toString(),
-    cache: "no-store",
-  });
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    console.error("Drive service-account auth failed:", res.status, errText);
-    throw new Error(`تعذر مصادقة حساب خدمة Google Drive (${res.status})`);
-  }
-
+  const signer = crypto.createSign("RSA-SHA256"); signer.update(signingInput); signer.end();
+  const assertion = `${signingInput}.${base64UrlEncode(signer.sign(privateKey))}`;
+  const res = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }).toString(), cache: "no-store" });
+  if (!res.ok) { console.error("Drive service-account auth failed:", res.status); throw new Error(`تعذر مصادقة حساب خدمة Google Drive (${res.status})`); }
   const data = (await res.json()) as { access_token?: string; expires_in?: number };
-  if (!data.access_token) {
-    throw new Error("تعذر الحصول على رمز Google Drive");
-  }
-
-  cachedToken = {
-    token: data.access_token,
-    expiresAt: Date.now() + (data.expires_in ?? 3500) * 1000,
-  };
+  if (!data.access_token) throw new Error("تعذر الحصول على رمز Google Drive");
+  cachedServiceAccountToken = { token: data.access_token, expiresAt: Date.now() + (data.expires_in ?? 3500) * 1000 };
   return data.access_token;
+}
+
+/** Legacy reads/management prefer the service account; OAuth is compatibility fallback. */
+export async function getDriveAccessToken(): Promise<string> {
+  if (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY) return getServiceAccountDriveAccessToken();
+  return getOAuthDriveAccessToken();
 }
 
 export interface DriveUploadResult {
@@ -258,8 +201,9 @@ export async function deleteDriveFile(fileId: string): Promise<boolean> {
   if (!fileId) return false;
   try {
     const accessToken = await getDriveAccessToken();
-    const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
-    if (folderId) {
+    const allowedParents = [process.env.GOOGLE_DRIVE_FOLDER_ID, process.env.GOOGLE_DRIVE_UPLOAD_FOLDER_ID].filter((x): x is string => Boolean(x));
+    if (!allowedParents.length) return false;
+    {
       const metaRes = await fetch(
         `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true&fields=id,parents`,
         {
@@ -267,12 +211,9 @@ export async function deleteDriveFile(fileId: string): Promise<boolean> {
           cache: "no-store",
         }
       );
-      if (metaRes.ok) {
-        const meta = (await metaRes.json()) as DriveFileMetadata;
-        if (!meta.parents?.includes(folderId)) {
-          return false;
-        }
-      }
+      if (!metaRes.ok) return false;
+      const meta = (await metaRes.json()) as DriveFileMetadata;
+      if (!Array.isArray(meta.parents) || !meta.parents.some((parent) => allowedParents.includes(parent))) return false;
     }
 
     const delRes = await fetch(
@@ -307,9 +248,9 @@ export async function initiateDriveResumableUpload(
     throw new Error(fileCheck.error || "نوع أو حجم الملف غير مسموح به");
   }
 
-  const accessToken = await getDriveAccessToken();
-  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
-  if (!folderId) throw new Error("GOOGLE_DRIVE_FOLDER_ID غير مضبوط في متغيرات البيئة");
+  const folderId = process.env.GOOGLE_DRIVE_UPLOAD_FOLDER_ID;
+  if (!folderId) throw new Error("GOOGLE_DRIVE_UPLOAD_FOLDER_ID غير مضبوط؛ لن يتم الرفع إلى المجلد القديم");
+  const accessToken = await getOAuthDriveAccessToken();
 
   // تنظيف اسم الملف من محارف التحكم والمسارات
   const safeName = fileName.replace(/[\u0000-\u001f\u007f\\/]/g, "_").slice(0, 255);
@@ -354,8 +295,8 @@ export async function finalizeDriveUpload(
   if (!fileId || !/^[A-Za-z0-9_-]{10,128}$/.test(fileId)) throw new Error("معرّف الملف غير صالح");
 
   const accessToken = await getDriveAccessToken();
-  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
-  if (!folderId) throw new Error("GOOGLE_DRIVE_FOLDER_ID غير مضبوط في متغيرات البيئة");
+  const folderId = process.env.GOOGLE_DRIVE_UPLOAD_FOLDER_ID || process.env.GOOGLE_DRIVE_FOLDER_ID;
+  if (!folderId) throw new Error("GOOGLE_DRIVE_UPLOAD_FOLDER_ID أو GOOGLE_DRIVE_FOLDER_ID غير مضبوط");
 
   const getRes = await fetch(
     `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true&fields=id,name,mimeType,parents,webViewLink,size,createdTime,trashed`,
@@ -407,12 +348,8 @@ export async function finalizeDriveUpload(
 }
 
 export async function getDriveStorageQuota(): Promise<DriveQuotaInfo | null> {
-  const hasOAuthCredentials = Boolean(
-    process.env.GOOGLE_OAUTH_CLIENT_ID &&
-      process.env.GOOGLE_OAUTH_CLIENT_SECRET &&
-      process.env.GOOGLE_OAUTH_REFRESH_TOKEN
-  );
-  if (!hasOAuthCredentials && process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL) {
+  const hasOAuthCredentials = Boolean(process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET && process.env.GOOGLE_OAUTH_REFRESH_TOKEN);
+  if (!hasOAuthCredentials) {
     // Drive's user quota is not a meaningful measure for a service account or a Shared Drive.
     return {
       limit: null,
@@ -426,12 +363,12 @@ export async function getDriveStorageQuota(): Promise<DriveQuotaInfo | null> {
   }
 
   try {
-    const accessToken = await getDriveAccessToken();
+    const accessToken = await getOAuthDriveAccessToken();
     const res = await fetch("https://www.googleapis.com/drive/v3/about?fields=storageQuota", {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: "no-store",
     });
-    if (!res.ok) return null;
+    if (!res.ok) return { limit: null, usage: 0, usageInDrive: 0, usageInDriveTrash: 0, percentUsed: null, isNearLimit: false, unavailableReason: "drive_file_scope" };
     const data = (await res.json()) as {
       storageQuota?: {
         limit?: string;
@@ -441,7 +378,7 @@ export async function getDriveStorageQuota(): Promise<DriveQuotaInfo | null> {
       };
     };
     const q = data.storageQuota;
-    if (!q) return null;
+    if (!q || !q.limit) return { limit: null, usage: 0, usageInDrive: 0, usageInDriveTrash: 0, percentUsed: null, isNearLimit: false, unavailableReason: "drive_file_scope" };
     const limit = q.limit ? Number(q.limit) : null;
     const usage = Number(q.usage ?? 0);
     const usageInDrive = Number(q.usageInDrive ?? 0);
@@ -456,7 +393,7 @@ export async function getDriveStorageQuota(): Promise<DriveQuotaInfo | null> {
       isNearLimit: percentUsed !== null && percentUsed >= 80,
     };
   } catch {
-    return null;
+    return { limit: null, usage: 0, usageInDrive: 0, usageInDriveTrash: 0, percentUsed: null, isNearLimit: false, unavailableReason: "drive_file_scope" };
   }
 }
 
@@ -467,7 +404,8 @@ export { extractDriveFileId, extractDriveFolderId };
 // فحص إعداد Google Drive: أي حساب يرفع؟ وهل يملك صلاحية الكتابة في مجلد الموقع؟
 // ---------------------------------------------------------------------------
 export interface DriveSetupStatus {
-  mode: "oauth" | "service_account" | "unconfigured";
+  mode: "split" | "oauth" | "service_account" | "unconfigured";
+  uploadMode: "oauth" | "unconfigured";
   accountEmail: string | null;
   folderId: string | null;
   folderName: string | null;
@@ -480,14 +418,14 @@ export interface DriveSetupStatus {
 }
 
 export async function checkDriveSetup(): Promise<DriveSetupStatus> {
+  const hasOAuth = Boolean(process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET && process.env.GOOGLE_OAUTH_REFRESH_TOKEN);
+  const hasServiceAccount = Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY);
+  const uploadFolder = process.env.GOOGLE_DRIVE_UPLOAD_FOLDER_ID ?? null;
   const status: DriveSetupStatus = {
-    mode: process.env.GOOGLE_OAUTH_REFRESH_TOKEN
-      ? "oauth"
-      : process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL
-      ? "service_account"
-      : "unconfigured",
+    mode: hasOAuth && hasServiceAccount ? "split" : hasOAuth ? "oauth" : hasServiceAccount ? "service_account" : "unconfigured",
+    uploadMode: hasOAuth && uploadFolder ? "oauth" : "unconfigured",
     accountEmail: null,
-    folderId: process.env.GOOGLE_DRIVE_FOLDER_ID ?? null,
+    folderId: uploadFolder,
     folderName: null,
     folderOwnerEmail: null,
     inSharedDrive: false,
@@ -495,17 +433,13 @@ export async function checkDriveSetup(): Promise<DriveSetupStatus> {
     publicEditAccess: null,
     error: null,
   };
-  if (status.mode === "unconfigured") {
-    status.error = "لم يتم ضبط حساب Google Drive في متغيرات البيئة";
-    return status;
-  }
-  if (!status.folderId) {
-    status.error = "GOOGLE_DRIVE_FOLDER_ID غير مضبوط";
+  if (!hasOAuth || !uploadFolder) {
+    status.error = !hasOAuth ? "إعداد OAuth مطلوب لرفع الملفات" : "GOOGLE_DRIVE_UPLOAD_FOLDER_ID غير مضبوط";
     return status;
   }
 
   try {
-    const token = await getDriveAccessToken();
+    const token = await getOAuthDriveAccessToken();
     const headers = { Authorization: `Bearer ${token}` };
 
     const aboutRes = await fetch("https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)", {
@@ -517,9 +451,11 @@ export async function checkDriveSetup(): Promise<DriveSetupStatus> {
       status.accountEmail = about.user?.emailAddress ?? null;
     }
 
+    const folderId = status.folderId;
+    if (!folderId) { status.error = "GOOGLE_DRIVE_UPLOAD_FOLDER_ID غير مضبوط"; return status; }
     const folderRes = await fetch(
       `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(
-        status.folderId
+        folderId
       )}?supportsAllDrives=true&fields=id,name,mimeType,driveId,owners(emailAddress),capabilities(canAddChildren),permissions(type,role)`,
       { headers, cache: "no-store" }
     );

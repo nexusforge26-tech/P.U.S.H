@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Link from "next/link";
 import {
   ALLOWED_UPLOAD_EXTENSIONS,
   MAX_UPLOAD_BYTES,
@@ -228,6 +229,7 @@ export default function DriveFileInput({ currentLink, currentName, onUploaded }:
   const [fileInfo, setFileInfo] = useState("");
   const [uploadedName, setUploadedName] = useState(currentName || "");
   const [pasted, setPasted] = useState("");
+  const [privacyAcknowledged, setPrivacyAcknowledged] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -343,12 +345,30 @@ export default function DriveFileInput({ currentLink, currentName, onUploaded }:
 
   return (
     <div className="space-y-2">
+      <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+        <strong>تنبيه الخصوصية:</strong> إذا اخترت ملفًا من جهازك، يُرفع إلى Google Drive الخاص بالمنصة
+        وقد يصبح متاحًا لمن يملك رابطه أثناء المراجعة. أما الرابط الذي تلصقه فقد يُعرض بعد موافقة
+        الإدارة. لا ترفع أو تربط ملفات سرية أو معلومات شخصية حساسة. <Link href="/terms" className="font-black underline">اقرأ سياسة الخصوصية</Link>.
+      </p>
+      <label className="flex items-start gap-2 rounded-xl border border-olive/10 bg-white px-3 py-2 text-xs leading-5 text-ink/75">
+        <input
+          type="checkbox"
+          checked={privacyAcknowledged}
+          onChange={(e) => setPrivacyAcknowledged(e.target.checked)}
+          disabled={busy}
+          className="mt-1 h-4 w-4 shrink-0 accent-olive"
+        />
+        <span>
+          أفهم أن الملف الذي أرفعه قد يكون متاحًا لمن يملك رابط Drive أثناء المراجعة، وأن الملف أو
+          الرابط الذي أقدمه لا يظهر في مكتبة PUSH العامة إلا بعد موافقة الإدارة.
+        </span>
+      </label>
       <input
         ref={fileRef}
         type="file"
         accept={ACCEPT_ATTR}
         onChange={handleFile}
-        disabled={busy}
+        disabled={busy || !privacyAcknowledged}
         className={FILE_INPUT_CLASS}
       />
       <p className="text-[11px] font-bold text-ink/45">
@@ -360,7 +380,7 @@ export default function DriveFileInput({ currentLink, currentName, onUploaded }:
         dir="ltr"
         value={pasted}
         onChange={(e) => handlePasteChange(e.target.value)}
-        disabled={busy}
+        disabled={busy || !privacyAcknowledged}
         placeholder="أو الصق رابط ملف آمن (https://drive.google.com/...)"
         className={INPUT_CLASS}
       />

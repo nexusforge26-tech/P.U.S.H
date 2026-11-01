@@ -52,6 +52,7 @@ export default function OverviewTab({
   const [loading, setLoading] = useState(true);
   const [driveCheck, setDriveCheck] = useState<null | {
     mode: string;
+    uploadMode?: string;
     accountEmail: string | null;
     folderName: string | null;
     folderOwnerEmail: string | null;
@@ -66,7 +67,7 @@ export default function OverviewTab({
     setCheckingDrive(true);
     try {
       const r = await authFetch("/api/admin/drive-check");
-      setDriveCheck(r.ok ? await r.json() : { mode: "?", accountEmail: null, folderName: null, folderOwnerEmail: null, inSharedDrive: false, canWrite: null, error: "تعذر تنفيذ الفحص" });
+      setDriveCheck(r.ok ? await r.json() : { mode: "?", uploadMode: "unconfigured", accountEmail: null, folderName: null, folderOwnerEmail: null, inSharedDrive: false, canWrite: null, error: "تعذر تنفيذ الفحص" });
     } catch {
       setDriveCheck(null);
     }
@@ -293,10 +294,9 @@ export default function OverviewTab({
           <section className="rounded-[28px] border border-olive/10 bg-white p-5 shadow-card sm:p-6">
             <h2 className="font-display text-xl font-bold text-olive-dark">التخزين (Google Drive)</h2>
             {driveQuota ? (
-              driveQuota.unavailableReason === "service_account" ? (
+              driveQuota.unavailableReason === "service_account" || driveQuota.unavailableReason === "drive_file_scope" ? (
                 <p className="mt-4 rounded-xl bg-amber-50 p-3 text-sm font-bold leading-6 text-amber-900">
-                  لا تتوفر حصة شخصية قابلة للقياس لحساب الخدمة؛ لا يعني ظهور 0 B أن مساحة الرفع متاحة.
-                  استخدم Shared Drive في Google Workspace أو OAuth لحساب Google شخصي.
+                  لا يمكن قياس حصة المالك بأمان عبر صلاحية drive.file؛ لا يعني ظهور 0 B أن مساحة الرفع متاحة. فشل القياس لا يمنع الرفع.
                 </p>
               ) : (
                 <div className="mt-4">
@@ -337,11 +337,11 @@ export default function OverviewTab({
                   <div>
                     <dt className="inline font-black">طريقة الدخول: </dt>
                     <dd className="inline">
-                      {driveCheck.mode === "oauth" ? "حساب Google (OAuth)" : driveCheck.mode === "service_account" ? "حساب خدمة (Service Account)" : driveCheck.mode}
+                      {driveCheck.mode === "split" ? "وضع منفصل: حساب الخدمة للقراءة والإدارة + OAuth للرفع" : driveCheck.mode === "oauth" ? "حساب Google (OAuth)" : driveCheck.mode === "service_account" ? "حساب خدمة (Service Account)" : driveCheck.mode}
                     </dd>
                   </div>
                   <div>
-                    <dt className="inline font-black">حساب الرفع: </dt>
+                    <dt className="inline font-black">حساب OAuth / الرفع: </dt>
                     <dd className="inline" dir="ltr">{driveCheck.accountEmail ?? "غير معروف"}</dd>
                   </div>
                   <div>
@@ -367,6 +367,9 @@ export default function OverviewTab({
                       ? "✓ الحساب يملك صلاحية الكتابة في مجلد الموقع."
                       : `✗ ${driveCheck.error ?? "تعذر التأكد من الصلاحية"}`}
                   </p>
+                  {driveCheck.mode === "split" && (
+                    <p className="rounded-xl bg-blue-50 p-3 font-bold leading-6 text-blue-800">يُنشأ الملف بحساب OAuth في مجلد الرفع؛ مشاركة هذا المجلد مع حساب الخدمة بصلاحية محرر مطلوبة للتحقق والقراءة والإدارة.</p>
+                  )}
                   {driveCheck.mode === "service_account" && !driveCheck.inSharedDrive && (
                     <p className="rounded-xl bg-red-50 p-3 font-black leading-6 text-red-700">
                       ⚠️ حساب الخدمة يستخدم مجلد My Drive، وليس Shared Drive. صلاحية الكتابة وحدها لا توفر
