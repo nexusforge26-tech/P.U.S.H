@@ -15,11 +15,12 @@ export const revalidate = 30;
 export async function generateMetadata({
   params,
 }: {
-  params: { id: string; courseId: string };
+  params: Promise<{ id: string; courseId: string }>;
 }): Promise<Metadata> {
+  const { id, courseId } = await params;
   const [university, course] = await Promise.all([
-    getUniversityById(params.id).catch(() => null),
-    getCourseById(params.courseId).catch(() => null),
+    getUniversityById(id).catch(() => null),
+    getCourseById(courseId).catch(() => null),
   ]);
   if (!university || !course) return { title: "مساق غير موجود" };
 
@@ -29,7 +30,7 @@ export async function generateMetadata({
   return {
     title,
     description,
-    alternates: { canonical: `/universities/${params.id}/${params.courseId}` },
+    alternates: { canonical: `/universities/${id}/${courseId}` },
     openGraph: {
       title: `${title} | PUSH`,
       description,
@@ -40,11 +41,12 @@ export async function generateMetadata({
 export default async function CourseMaterialsPage({
   params,
 }: {
-  params: { id: string; courseId: string };
+  params: Promise<{ id: string; courseId: string }>;
 }) {
+  const { id, courseId } = await params;
   const [university, course] = await Promise.all([
-    getUniversityById(params.id).catch(() => null),
-    getCourseById(params.courseId).catch(() => null),
+    getUniversityById(id).catch(() => null),
+    getCourseById(courseId).catch(() => null),
   ]);
   if (!university || !course || course.university_id !== university.id) notFound();
 

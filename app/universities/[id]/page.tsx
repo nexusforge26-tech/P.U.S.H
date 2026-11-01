@@ -9,13 +9,14 @@ export const revalidate = 60;
 export async function generateMetadata({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }): Promise<Metadata> {
-  const university = await getUniversityById(params.id).catch(() => null);
+  const { id } = await params;
+  const university = await getUniversityById(id).catch(() => null);
   if (!university) return { title: "جامعة غير موجودة" };
   return {
     title: `مساقات ${university.name_ar}`,
-    alternates: { canonical: `/universities/${params.id}` },
+    alternates: { canonical: `/universities/${id}` },
     description: `تصفح كافة المساقات والملخصات والامتحانات السابقة الخاصة بـ ${university.name_ar} على منصة PUSH.`,
     openGraph: {
       title: `مساقات ${university.name_ar} | PUSH`,
@@ -24,10 +25,11 @@ export async function generateMetadata({
   };
 }
 
-export default async function UniversityCoursesPage({ params }: { params: { id: string } }) {
-  const university = await getUniversityById(params.id).catch(() => null);
+export default async function UniversityCoursesPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const university = await getUniversityById(id).catch(() => null);
   if (!university) notFound();
-  const courses = await getCourses(params.id).catch(() => []);
+  const courses = await getCourses(id).catch(() => []);
 
   return (
     <div className="min-h-screen bg-[#f7f5ef]">
