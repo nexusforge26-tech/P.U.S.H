@@ -19,10 +19,11 @@ export const metadata: Metadata = {
 };
 
 interface Props {
-  searchParams: { q?: string; university?: string };
+  searchParams: Promise<{ q?: string; university?: string }>;
 }
 
-export default async function DoctorsPage({ searchParams }: Props) {
+export default async function DoctorsPage({ searchParams: searchParamsPromise }: Props) {
+  const searchParams = await searchParamsPromise;
   let doctors: Awaited<ReturnType<typeof searchDoctors>> = [];
   let errored = false;
   try {

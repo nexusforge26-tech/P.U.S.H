@@ -33,9 +33,10 @@ function hardenedHeaders(headers: Headers, inline: boolean) {
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const id = params.id?.trim();
+  const { id: rawId } = await params;
+  const id = rawId?.trim();
 
   // لا نقبل إلا معرّف مادة (UUID). كان المسار يقبل سابقًا أي معرّف ملف Drive خام،
   // فيجلب أي ملف يصل إليه حساب مالك الموقع ويجعله عامًا.

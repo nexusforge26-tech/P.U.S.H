@@ -4,9 +4,9 @@ import { getClientIp, isUuid, rateLimit, shouldCountDownload, tooManyRequests } 
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const materialId = params.id;
+  const { id: materialId } = await params;
   if (!isUuid(materialId)) {
     return NextResponse.json({ error: "معرّف غير صالح" }, { status: 400 });
   }

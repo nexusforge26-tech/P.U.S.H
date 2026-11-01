@@ -67,20 +67,22 @@ OWNER_EMAIL=your-owner-email@example.com
 # رابط الموقع العام (لـ Sitemap و OpenGraph)
 NEXT_PUBLIC_SITE_URL=https://your-domain.vercel.app
 
-# Google Drive (موصى باستخدام OAuth 2.0 مع حساب Google شخصي)
+# Google Drive: حساب الخدمة للقراءة/الإدارة القديمة، OAuth للرفع الجديد
 GOOGLE_DRIVE_FOLDER_ID=1AbCDEfGhIjKlMnOpQrStUvWxYz
+GOOGLE_DRIVE_UPLOAD_FOLDER_ID=...
+GOOGLE_SERVICE_ACCOUNT_EMAIL=...
+GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=...
 GOOGLE_OAUTH_CLIENT_ID=...
 GOOGLE_OAUTH_CLIENT_SECRET=...
 GOOGLE_OAUTH_REFRESH_TOKEN=...
 ```
 
-> **ملاحظة مهمة حول Google Drive:**
-> حسابات الخدمة (`Service Account`) لا تملك مساحة تخزين خاصة ولا تعمل إلا مع **Shared Drives** المدفوعة في Google Workspace. لذلك إذا كنت تستخدم حساب Google Drive شخصيًا عاديًا (15 جيجابايت)، استخدم متغيرات `GOOGLE_OAUTH_*` الثلاثة كما هو مشروح في `.env.example`.
-
+> **إعداد Google Drive بنمط split:** أنشئ مجلد رفع جديدًا بحساب Google الذي يستخدم OAuth، واضبط `GOOGLE_DRIVE_UPLOAD_FOLDER_ID` عليه. استخدم OAuth scope المحدود `https://www.googleapis.com/auth/drive.file` لإنشاء الملفات الجديدة؛ لا تستخدم المجلد القديم كوجهة رفع. أبقِ `GOOGLE_DRIVE_FOLDER_ID` للمجلد القديم، واجعل حساب الخدمة الاعتماد الافتراضي للقراءة والتنزيل والإدارة. شارك مجلد الرفع الجديد مع بريد `GOOGLE_SERVICE_ACCOUNT_EMAIL` بصلاحية **محرر (Writer/Editor)** لكي يتمكن من التحقق من الملفات وقراءتها ومشاركتها. مجلد الرفع يجب أن يكون مرئيًا وقابلًا للكتابة لحساب OAuth. حصة التخزين لا تُستنتج من حصة حساب الخدمة؛ عند منع Google قياسها بسبب نطاق `drive.file` تظهر «غير متاحة» ولا تمنع الرفع.
 ## أبرز ميزات الأمان وجودة المحتوى
 
 - **التحقق الصارم من الروابط (`validateLink`)**: قبول روابط `https://` الموثوقة فقط ومنع `javascript:` و`data:` والروابط المحلية في كل مسارات الإدخال والعرض.
 - **حماية رفع الملفات**: قائمة سماح للامتدادات والـ MIME Types الأكاديمية (PDF، Office، الصور، والملفات المضغوطة) مع فحص نوع الملف الفعلي من Google Drive عند الإنهاء وحذف أي ملف مخالف أو مرفوض تلقائيًا.
+- **إفصاح Drive للمساهمين**: قد يصبح الملف قابلًا للمشاهدة لمن يملك رابط Drive أثناء انتظار المراجعة، مع أن ظهوره في مكتبة الموقع العامة لا يحدث إلا بعد موافقة الإدارة؛ يظهر هذا التنبيه قبل أداة الرفع في الواجهة وسياسة الخصوصية.
 - **استئناف الرفع التلقائي**: حفظ جلسة الرفع في `localStorage` لاستئناف رفع الملفات الكبيرة من نفس النقطة حتى بعد إغلاق الصفحة.
 - **مراجعة غنية وذرّية (Atomic Review)**: معاينة مدمجة للملف والفيديو في لوحة الإدارة، كشف تلقائي لتكرار العناوين، إمكانية تعديل البيانات قبل القبول، قبول جماعي، وأسباب رفض جاهزة مع إرسال إشعارات فورية للمساهم.
 - **حماية ما بعد القبول**: يستطيع صاحب المادة خلال 6 ساعات تعديل العنوان والوصف مباشرة، بينما يتحول أي تغيير في رابط الملف إلى «تعديل معلّق» يمر بمراجعة الإدارة.
@@ -103,7 +105,7 @@ npm test
 عند نشر المشروع على Vercel، أضف **جميع** متغيرات البيئة التالية في إعدادات المشروع (Environment Variables):
 1. متغيرات Supabase الثلاثة (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`).
 2. متغير بريد المالك (`OWNER_EMAIL`) ورابط الموقع (`NEXT_PUBLIC_SITE_URL`).
-3. متغيرات Google Drive (`GOOGLE_DRIVE_FOLDER_ID` مع ثلاثي `GOOGLE_OAUTH_CLIENT_ID` و`GOOGLE_OAUTH_CLIENT_SECRET` و`GOOGLE_OAUTH_REFRESH_TOKEN`).
+3. متغيرات Google Drive: المجلدان `GOOGLE_DRIVE_FOLDER_ID` و`GOOGLE_DRIVE_UPLOAD_FOLDER_ID`، بيانات OAuth، وبريد/مفتاح حساب الخدمة؛ شارك مجلد الرفع مع حساب الخدمة كـ Editor.
 4. تأكد من إضافة رابط `https://YOUR-VERCEL-DOMAIN.vercel.app/auth/callback` في إعدادات Supabase Redirect URLs.
 
 

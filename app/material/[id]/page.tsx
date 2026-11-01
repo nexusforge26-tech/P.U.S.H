@@ -17,9 +17,10 @@ export const revalidate = 30;
 export async function generateMetadata({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }): Promise<Metadata> {
-  const material = await getMaterialById(params.id).catch(() => null);
+  const { id } = await params;
+  const material = await getMaterialById(id).catch(() => null);
   if (!material) {
     return { title: "مادة غير موجودة" };
   }
@@ -40,7 +41,7 @@ export async function generateMetadata({
   return {
     title,
     description,
-    alternates: { canonical: `/material/${params.id}` },
+    alternates: { canonical: `/material/${id}` },
     openGraph: {
       title,
       description,
@@ -56,10 +57,11 @@ export async function generateMetadata({
   };
 }
 
-export default async function MaterialPage({ params }: { params: { id: string } }) {
+export default async function MaterialPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   let material;
   try {
-    material = await getMaterialById(params.id);
+    material = await getMaterialById(id);
   } catch {
     material = null;
   }

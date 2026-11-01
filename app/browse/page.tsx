@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 export const revalidate = 30;
 
 interface Props {
-  searchParams: {
+  searchParams: Promise<{
     q?: string;
     university?: string;
     course?: string;
@@ -24,7 +24,7 @@ interface Props {
     year?: string;
     sort?: string;
     page?: string;
-  };
+  }>;
 }
 
 const PAGE_SIZE = 12;
@@ -49,7 +49,8 @@ function getPaginationRange(current: number, total: number): (number | "ellipsis
   return pages;
 }
 
-export default async function BrowsePage({ searchParams }: Props) {
+export default async function BrowsePage({ searchParams: searchParamsPromise }: Props) {
+  const searchParams = await searchParamsPromise;
   const page = Math.max(1, Number(searchParams.page ?? "1") || 1);
   const sort: MaterialSort =
     searchParams.sort === "downloads" || searchParams.sort === "helpful"
