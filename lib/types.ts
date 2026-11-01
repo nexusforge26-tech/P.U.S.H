@@ -233,6 +233,7 @@ export const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   report_resolved: "عالج بلاغًا على مادة",
   role_changed: "غيّر صلاحية حساب",
   user_deleted: "حذف حساب مستخدم",
+  members_exported: "صدّر بيانات الأعضاء إلى Excel",
 };
 
 // نافذة السماح لصاحب المادة بتعديل/حذف ما نشره بنفسه، بالساعات.

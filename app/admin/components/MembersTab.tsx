@@ -31,6 +31,7 @@ export default function MembersTab() {
   const [actor, setActor] = useState<UserRole>("user");
   const [scoped, setScoped] = useState(false);
   const [busy, setBusy] = useState("");
+  const [exporting, setExporting] = useState(false);
 
   const load = useCallback(async () => {
     const params = new URLSearchParams({
@@ -53,6 +54,41 @@ export default function MembersTab() {
   useEffect(() => {
     load();
   }, [load]);
+
+  async function exportAllData() {
+    if (exporting) return;
+    const warning = `سيشمل الملف جميع بيانات الحسابات والسجلات المرتبطة بها داخل المنصة، بما فيها المساهمات والبلاغات والإشعارات وسجل الرفع والنشاط. قد يحتوي على بيانات تواصل وروابط ملفات وملاحظات إدارية، وسيُسجل التصدير في سجل الإدارة. احفظ الملف بأمان ولا تشاركه دون حاجة. متابعة تصدير ${count.toLocaleString("ar")} عضو؟`;
+    if (!confirm(warning)) return;
+
+    setExporting(true);
+    try {
+      const params = new URLSearchParams();
+      if (q.trim()) params.set("q", q.trim());
+      if (roleFilter) params.set("role", roleFilter);
+      const response = await authFetch(`/api/admin/users/export?${params.toString()}`, {
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        alert(data.error || "تعذر إعداد ملف Excel الشامل.");
+        return;
+      }
+
+      const blob = await response.blob();
+      const downloadUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = downloadUrl;
+      anchor.download = `PUSH-members-full-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+    } catch {
+      alert("تعذر الاتصال بخادم التصدير. حاول مرة أخرى.");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   async function changeRole(u: MemberProfile, role: string) {
     if (role === u.role) return;
@@ -115,10 +151,27 @@ export default function MembersTab() {
               : "الصلاحية الافتراضية لكل حساب جديد: مستخدم عادي."}
           </p>
         </div>
-        <span className="rounded-full bg-olive/7 px-3 py-1 text-xs font-black text-olive-dark">
-          {count.toLocaleString("ar")} عضو
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full bg-olive/7 px-3 py-1 text-xs font-black text-olive-dark">
+            {count.toLocaleString("ar")} عضو
+          </span>
+          {(actor === "admin" || actor === "owner") && (
+            <button
+              type="button"
+              onClick={exportAllData}
+              disabled={exporting || count === 0}
+              className="rounded-full bg-olive px-4 py-2 text-xs font-black text-white hover:bg-olive-dark disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {exporting ? "جارٍ إعداد ملف Excel..." : "تصدير جميع البيانات إلى Excel"}
+            </button>
+          )}
+        </div>
       </div>
+      {(actor === "admin" || actor === "owner") && (
+        <p className="mt-3 text-xs leading-6 text-ink/45">
+          يشمل التصدير جميع السجلات المرتبطة بالأعضاء ضمن البحث والفلاتر الحالية. لا يتضمن كلمات المرور أو رموز الدخول والجلسات، وتُسجل عملية التنزيل إداريًا.
+        </p>
+      )}
 
       <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_200px]">
         <input
