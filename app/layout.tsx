@@ -6,6 +6,7 @@ import Footer from "@/components/Footer";
 import { AuthProvider } from "@/components/AuthProvider";
 import ProfileGate from "@/components/ProfileGate";
 import GeolocationVisitTracker from "@/components/GeolocationVisitTracker";
+import SiteVisitTracker from "@/components/SiteVisitTracker";
 
 const amiri = Amiri({
   subsets: ["arabic"],
@@ -63,6 +64,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </div>
           <ProfileGate />
           <GeolocationVisitTracker />
+          <SiteVisitTracker />
         </AuthProvider>
       </body>
     </html>

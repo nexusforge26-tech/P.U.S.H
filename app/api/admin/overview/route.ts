@@ -107,7 +107,22 @@ export async function GET(req: NextRequest) {
       };
     });
 
+    // الزيارات: للمالك فقط
+    let visits: unknown = null;
+    let visitsUnavailable = false;
+    if (actor.profile.role === "owner") {
+      const v = await supabaseAdmin.rpc("get_visit_stats");
+      if (v.error) {
+        visitsUnavailable = true;
+        console.error("[admin/overview] visit stats failed:", v.error.code || "unknown");
+      } else {
+        visits = v.data;
+      }
+    }
+
     return NextResponse.json({
+      visits,
+      visitsUnavailable,
       scoped: Boolean(scope),
       totals: {
         materials: materialsTotal.count ?? 0,

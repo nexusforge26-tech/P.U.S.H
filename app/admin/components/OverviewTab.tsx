@@ -17,7 +17,21 @@ export type AdminTabKey =
   | "members"
   | "log";
 
+interface VisitStats {
+  today: number;
+  today_members: number;
+  today_guests: number;
+  yesterday: number;
+  total: number;
+  total_members: number;
+  total_guests: number;
+  since: string | null;
+  days: { day: string; visits: number }[];
+}
+
 interface Overview {
+  visits: VisitStats | null;
+  visitsUnavailable: boolean;
   scoped: boolean;
   totals: { materials: number; courses: number; universities: number; doctors: number; members: number; downloads: number };
   week: { materials: number; members: number };
@@ -165,6 +179,67 @@ export default function OverviewTab({
             إعادة المحاولة
           </button>
         </div>
+      )}
+
+      {/* زيارات الموقع (للمالك فقط) */}
+      {data?.visitsUnavailable && (
+        <div className="rounded-2xl bg-amber-50 p-4 text-sm font-bold leading-6 text-amber-900">
+          عدّاد الزيارات غير مفعّل بعد: شغّل ترحيل 2026-11-03-site-visits.sql في Supabase.
+        </div>
+      )}
+      {data?.visits && (
+        <section className="rounded-[28px] border border-olive/10 bg-white p-5 shadow-card sm:p-6">
+          <div className="flex items-end justify-between gap-3">
+            <div>
+              <p className="text-xs font-black tracking-[.16em] text-clay">VISITS</p>
+              <h2 className="mt-1 font-display text-2xl font-bold text-olive-dark">زيارات الموقع</h2>
+            </div>
+            <p className="text-[11px] font-bold text-ink/40">
+              الزيارة = جلسة تصفح واحدة في اليوم، ويبدأ العدّ اليومي من الصفر عند منتصف الليل بتوقيت فلسطين
+            </p>
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-2xl border border-olive/10 bg-[#fbfaf7] p-4">
+              <p className="text-xs font-black text-ink/45">زيارات اليوم</p>
+              <p className="mt-1 font-display text-4xl font-bold text-olive-dark">{n(data.visits.today)}</p>
+              <p className="mt-1 text-[11px] font-bold text-olive/70">
+                {n(data.visits.today_members)} أعضاء · {n(data.visits.today_guests)} زوار
+              </p>
+              <p className="mt-0.5 text-[11px] font-bold text-ink/40">أمس: {n(data.visits.yesterday)}</p>
+            </div>
+            <div className="rounded-2xl border border-olive/10 bg-[#fbfaf7] p-4">
+              <p className="text-xs font-black text-ink/45">كل الزيارات</p>
+              <p className="mt-1 font-display text-4xl font-bold text-olive-dark">{n(data.visits.total)}</p>
+              <p className="mt-1 text-[11px] font-bold text-olive/70">
+                {n(data.visits.total_members)} أعضاء · {n(data.visits.total_guests)} زوار
+              </p>
+              {data.visits.since && (
+                <p className="mt-0.5 text-[11px] font-bold text-ink/40">
+                  منذ {new Date(data.visits.since + "T00:00:00").toLocaleDateString("ar")}
+                </p>
+              )}
+            </div>
+            <div className="rounded-2xl border border-olive/10 bg-[#fbfaf7] p-4">
+              <p className="text-xs font-black text-ink/45">آخر 14 يومًا</p>
+              {(() => {
+                const max = Math.max(1, ...data.visits.days.map((d) => d.visits));
+                return (
+                  <div className="mt-3 flex h-16 items-end gap-1" dir="ltr">
+                    {data.visits.days.map((d) => (
+                      <div
+                        key={d.day}
+                        title={`${d.day}: ${d.visits}`}
+                        className="flex-1 rounded-t bg-olive/70"
+                        style={{ height: `${Math.max(d.visits ? 6 : 2, Math.round((d.visits / max) * 100))}%` }}
+                      />
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </section>
       )}
 
       {/* 2) مؤشرات */}
